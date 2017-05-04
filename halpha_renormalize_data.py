@@ -7,7 +7,7 @@ import astropy.units as un
 
 from astropy.table import Table
 from scipy.signal import savgol_filter, argrelextrema
-from scipy.interpolate import lagrange
+from scipy.interpolate import lagrange, splrep, splev
 
 from lmfit import minimize, Parameters, report_fit, Minimizer
 from lmfit.models import GaussianModel, LorentzianModel, VoigtModel, PseudoVoigtModel, LinearModel, ConstantModel
@@ -16,10 +16,10 @@ imp.load_source('s_collection', '../Carbon-Spectra/spectra_collection_functions.
 from s_collection import CollectionParameters
 
 print 'Reading data sets'
-galah_data_dir = '/home/nandir/Desktop/GALAH_data/'
+galah_data_dir = '/home/klemen/GALAH_data/'
 galah_param = Table.read(galah_data_dir+'sobject_iraf_52_reduced.csv')
 
-spectra_file_ccd1 = 'galah_dr52_ccd1_5640_5880_interpolated_wvlstep_0.04_spline_restframe.csv'
+spectra_file_ccd1 = 'galah_dr52_ccd1_4710_4910_interpolated_wvlstep_0.04_spline_restframe.csv'
 spectra_file_ccd3 = 'galah_dr52_ccd3_6475_6745_interpolated_wvlstep_0.06_spline_restframe.csv'
 # parse resampling settings from filename
 csv_param_ccd1 = CollectionParameters(spectra_file_ccd1)
@@ -33,7 +33,7 @@ print 'Number of all objects: '+str(len(galah_param))
 idx_object_use = galah_param['logg_guess'] < 3.5
 # must have a decent snr value
 idx_object_use = np.logical_and(idx_object_use,
-                                galah_param['snr_c3_guess'] > 150)
+                                galah_param['snr_c3_guess'] > 100)
 print 'Number of used objects: '+str(np.sum(idx_object_use))
 # create a subset of input object tables
 galah_param = galah_param[idx_object_use].filled()  # handle masked values
@@ -61,7 +61,7 @@ wvl_read_ccd3 = wvl_values_ccd3[idx_alpha]
 print 'Reading resampled GALAH spectra'
 print ' cols for ccd1: '+str(len(wvl_read_ccd1))
 ccd1_data = pd.read_csv(galah_data_dir + spectra_file_ccd1, sep=',', header=None, na_values='nan',
-                        usecols=wvl_read_ccd1[0], skiprows=np.where(np.logical_not(idx_object_use))[0]).values
+                        usecols=idx_beta[0], skiprows=np.where(np.logical_not(idx_object_use))[0]).values
 print ' cols for ccd3: '+str(len(wvl_read_ccd3))
 ccd3_data = pd.read_csv(galah_data_dir + spectra_file_ccd3, sep=',', header=None, na_values='nan',
                         usecols=idx_alpha[0], skiprows=np.where(np.logical_not(idx_object_use))[0]).values
@@ -88,10 +88,61 @@ def gaussian_fit(parameters, data, wvls, continuum, evaluate=True):
         return function_val
 
 
-def fit_h_profile(spectrum, wavelengths, wvl_center, verbose=False):
+def fit_h_profile_initial(spectrum, wavelengths, wvl_center=0, verbose=False, method='savgol',
+                          window=45, savgol_order=2, poly_order=20):
+    # median/mean method with sliding windows
+    if method == 'sliding':
+        n_obs_mean = np.convolve(np.ones(len(spectrum)), np.ones(window), mode='same')
+        y_fit = np.convolve(spectrum, np.ones(window), mode='same')/n_obs_mean
+    # savgol filtering
+    elif method == 'savgol':
+        y_fit = savgol_filter(spectrum, window, savgol_order)
+    # polynominal method
+    elif method == 'poly':
+        chb_coef = np.polynomial.chebyshev.chebfit(wavelengths-wvl_center, spectrum, poly_order)
+        y_fit = np.polynomial.chebyshev.chebval(wavelengths-wvl_center, chb_coef)
+    elif method == 'spline':
+        bspline = splrep(wavelengths - wvl_center, spectrum)  # k and der must be odd
+        y_fit = splev(wavelengths - wvl_center, bspline)  # der <= k
+    # return fitted function
+    return y_fit
+
+
+def sigma_clip(y, y_ref, std_lower=2., std_upper=2., wvl=None, wvl_center=None, wvl_center_range=0.5):
+    delta = y_ref - y
+    sigma = np.nanstd(delta)
+    idx_bad = np.logical_or(delta < -1.* sigma * std_lower,
+                            delta > sigma * std_upper)
+    # region around center of absorption line should always be included in the data
+    if wvl is not None and wvl_center is not None:
+        idx_line_center = np.logical_and(wvl >= (wvl_center - wvl_center_range),
+                                         wvl <= (wvl_center + wvl_center_range))
+        idx_bad[idx_line_center] = False
+    return np.logical_not(idx_bad)
+
+
+def fit_h_profile_with_clipping(spectrum, wavelengths, wvl_center=0., verbose=False,
+                                steps=3, std_lower=2., std_upper=2.):
+    idx_use = np.isfinite(spectrum)
+    for n_s in range(steps):
+        len_use = np.sum(idx_use)
+        if verbose:
+            print len_use
+        fit_res = fit_h_profile(spectrum[idx_use], wavelengths[idx_use], wvl_center=wvl_center, verbose=verbose)
+        spectrum_fitted = fit_res.eval(x=wavelengths-wvl_center)
+        idx_use = np.logical_and(idx_use,
+                                 sigma_clip(spectrum, spectrum_fitted, std_lower=std_lower, std_upper=std_upper,
+                                            wvl=wavelengths, wvl_center=wvl_center))
+        # steps is maximum number of steps, break if no change in number of excluded points
+        if np.sum(idx_use) >= len_use:
+            break
+    return spectrum_fitted
+
+
+def fit_h_profile(spectrum, wavelengths, wvl_center=0., verbose=False):
     profile = VoigtModel(prefix='abs_')
     profile2 = VoigtModel(prefix='abs2_')
-    # profile2 = VoigtModel(prefix='abs3_')
+    # profile3 = VoigtModel(prefix='abs3_')
     # line = ConstantModel(prefix='const_')  # constant or
     line = LinearModel(prefix='line_')  # linear model
     params = Parameters()
@@ -150,7 +201,7 @@ print 'Fitting procedure started'
 # plot some randomly selected spectra
 # idx_rand = np.arange(1400)
 # idx_rand = np.where(galah_param['sobject_id'] == 151109003601023)[0]
-idx_rand = range(len(idx_object_use))
+idx_rand = range(len(galah_param))
 for i_r in idx_rand:
     object_param = galah_param[i_r]
     sobj_id = object_param['sobject_id']
@@ -158,16 +209,32 @@ for i_r in idx_rand:
 
     # fit h-alpha profile
     spectra_ccd3 = ccd3_data[i_r]
-    h_alpha_fit = fit_h_profile(spectra_ccd3, wvl_read_ccd3, HALPHA_WVL)
+    # h_alpha_fited_curve = fit_h_profile(spectra_ccd3, wvl_read_ccd3, HALPHA_WVL).best_fit
+    h_alpha_fited_curve = fit_h_profile_with_clipping(spectra_ccd3, wvl_read_ccd3, wvl_center=HALPHA_WVL, steps=8)
+
     # fit b-beta profile
     spectra_ccd1 = ccd1_data[i_r]
-    h_beta_fit = fit_h_profile(spectra_ccd1, wvl_read_ccd1, HBETA_WVL)
+    h_beta_fited_curve = fit_h_profile_with_clipping(spectra_ccd1, wvl_read_ccd1, wvl_center=HBETA_WVL, steps=8)
+    # idx_valid = np.isfinite(spectra_ccd1)  # values close to end of the spectrum may be undefined
+    # h_beta_fited_curve = np.ndarray(len(spectra_ccd1))
+    # h_beta_fited_curve.fill(np.nan)
+    # h_beta_fited_curve[idx_valid] = fit_h_profile(spectra_ccd1[idx_valid], wvl_read_ccd1[idx_valid], HBETA_WVL).best_fit
+
+    # test plots for initial continuum fit
+    # plt.plot(wvl_read_ccd1, spectra_ccd1, color='black')
+    # plt.plot(wvl_read_ccd3, fit_h_profile_initial(spectra_ccd3, wvl_read_ccd3, HALPHA_WVL, method='sliding'), color='red')
+    # plt.plot(wvl_read_ccd3, fit_h_profile_initial(spectra_ccd3, wvl_read_ccd3, HALPHA_WVL, method='savgol'), color='green')
+    # plt.plot(wvl_read_ccd1, fit_h_profile_with_clipping(spectra_ccd1, wvl_read_ccd1, wvl_center=HBETA_WVL, steps=1), color='red')
+    # plt.plot(wvl_read_ccd1, fit_h_profile_with_clipping(spectra_ccd1, wvl_read_ccd1, wvl_center=HBETA_WVL, steps=6), color='green')
+    # plt.savefig(str(sobj_id) + '.png', dpi=250)
+    # plt.close()
+    # continue
 
     # spectra normalization
-    spectra_ccd3_norm = spectra_ccd3 / h_alpha_fit.best_fit
-    spectra_ccd3_sub = spectra_ccd3 - h_alpha_fit.best_fit
-    spectra_ccd1_norm = spectra_ccd1 / h_beta_fit.best_fit
-    spectra_ccd1_sub = spectra_ccd1 - h_beta_fit.best_fit
+    spectra_ccd3_norm = spectra_ccd3 / h_alpha_fited_curve
+    spectra_ccd3_sub = spectra_ccd3 - h_alpha_fited_curve
+    spectra_ccd1_norm = spectra_ccd1 / h_beta_fited_curve
+    spectra_ccd1_sub = spectra_ccd1 - h_beta_fited_curve
 
     # save renormalized results to csv file
     append_line(txt_out_spectra3, ','.join([str(flx) for flx in spectra_ccd3_sub]), new_line=True)
@@ -177,13 +244,13 @@ for i_r in idx_rand:
     fig, axs = plt.subplots(2,2)
     fig.suptitle('Guess   ->   teff:{:4.0f}   logg:{:1.1f}   feh:{:1.1f}'.format(object_param['teff_guess'],object_param['logg_guess'],object_param['feh_guess']))
     # h-alpha plots
-    axs[0, 0].plot(wvl_read_ccd3, h_alpha_fit.best_fit, color='red', linewidth=0.8)
+    axs[0, 0].plot(wvl_read_ccd3, h_alpha_fited_curve, color='red', linewidth=0.8)
     axs[0, 0].plot(wvl_read_ccd3, spectra_ccd3, color='black', linewidth=0.4)
     axs[0, 0].set(xlim=(wvl_min_alpha, wvl_max_alpha), ylim=(0.1, 1.1), title='H-alpha', ylabel='Flux')
     axs[1, 0].plot(wvl_read_ccd3, spectra_ccd3_sub, color='black', linewidth=0.5)
     axs[1, 0].set(xlim=(wvl_min_alpha, wvl_max_alpha), ylim=(-0.2, 0.2), ylabel='Subtracted flux', xlabel='Wavelength')
     # h-beta plots
-    axs[0, 1].plot(wvl_read_ccd1, h_beta_fit.best_fit, color='red', linewidth=0.75)
+    axs[0, 1].plot(wvl_read_ccd1, h_beta_fited_curve, color='red', linewidth=0.75)
     axs[0, 1].plot(wvl_read_ccd1, spectra_ccd1, color='black', linewidth=0.4)
     axs[0, 1].set(xlim=(wvl_min_beta, wvl_max_beta), ylim=(0.1, 1.1), title='H-beta')
     axs[1, 1].plot(wvl_read_ccd1, spectra_ccd1_sub, color='black', linewidth=0.5)
