@@ -8,17 +8,23 @@ import astropy.units as un
 from astropy.table import Table
 
 
-
-def spectra_stat(spect_col):
+def spectra_stat(spect_col, spread=False, percentile=None):
     # remove outliers
     mean = np.nanmean(spect_col)
     std = np.nanstd(spect_col)
     idx_use = np.abs(spect_col - mean) < (std * 2.)
-    return np.nanmean(spect_col[idx_use])
+    if percentile is not None:
+        return np.nanpercentile(spect_col[idx_use], percentile)
+    elif spread:
+        return np.nanstd(spect_col[idx_use])
+    else:
+        return np.nanmean(spect_col[idx_use])
 
 print 'Reading data sets'
 galah_data_dir = '/home/klemen/GALAH_data/'
 galah_param = Table.read(galah_data_dir+'sobject_iraf_52_reduced.csv')
+
+os.chdir('H_spectra_normalization_2')
 
 txt_out_sobject = 'report_sobject_ids.csv'
 txt_out_wvl1 = 'report_wavelengths_ccd1.csv'
@@ -31,18 +37,33 @@ wvl_ccd1 = np.loadtxt(txt_out_wvl1, delimiter=',')
 hbeta_lim = (np.min(wvl_ccd1), np.max(wvl_ccd1))
 wvl_ccd3 = np.loadtxt(txt_out_wvl3, delimiter=',')
 halpha_lim = (np.min(wvl_ccd3), np.max(wvl_ccd3))
-# normalized_data_ccd1 = pd.read_csv(txt_out_spectra1, header=None, sep=',', na_values='nan').values
-# normalized_data_ccd3 = pd.read_csv(txt_out_spectra3, header=None, sep=',', na_values='nan').values
+normalized_data_ccd1 = pd.read_csv(txt_out_spectra1, header=None, sep=',', na_values='nan').values
+normalized_data_ccd3 = pd.read_csv(txt_out_spectra3, header=None, sep=',', na_values='nan').values
+
+n_lines = normalized_data_ccd3.shape[0]
 
 # select normalized objects from the complete set
-idx_use = np.in1d(galah_param['sobject_id'].data, sobjects_normalized)
+idx_use = np.in1d(galah_param['sobject_id'].data, sobjects_normalized[:n_lines])
 galah_param_norm = galah_param[idx_use].filled()
 
-ra_dec = coord.ICRS(ra=galah_param['ra'].data*un.deg,
-                    dec=galah_param['dec'].data*un.deg)
+ra_dec = coord.ICRS(ra=galah_param_norm['ra'].data*un.deg,
+                    dec=galah_param_norm['dec'].data*un.deg)
+
+all_mean_halpha = np.apply_along_axis(spectra_stat, 0, normalized_data_ccd3)
+all_mean_hbeta = np.apply_along_axis(spectra_stat, 0, normalized_data_ccd1)
+
+os.chdir('Stacked_plots')
+
+# idx_plot = np.logical_and(all_mean_halpha <= 0.02,
+#                           all_mean_halpha >= -0.02)
+plt.plot(wvl_ccd3, all_mean_halpha, color='black', linewidth=0.75)
+plt.xlim(halpha_lim)
+plt.ylim((-0.05, 0.05))
+plt.savefig('halpha_all.png', dpi=350)
+plt.close()
 
 # create a meshgrid of ra/dec coordinates
-max_dist = 30 * un.deg
+max_dist = 20 * un.deg
 for ra_center in np.arange(10, 360, 30):
     for dec_center in np.arange(-80, 90, 20):
         print ra_center, dec_center
@@ -57,17 +78,37 @@ for ra_center in np.arange(10, 360, 30):
         if n_in_filed <= 0:
             continue
         field_mean_halpha = np.apply_along_axis(spectra_stat, 0, normalized_data_ccd3[idx_in_field, :])
+        # field_std_halpha = np.apply_along_axis(spectra_stat, 0, normalized_data_ccd3[idx_in_field, :], **{'spread':True})
         field_mean_hbeta = np.apply_along_axis(spectra_stat, 0, normalized_data_ccd1[idx_in_field, :])
+        # field_std_hbeta = np.apply_along_axis(spectra_stat, 0, normalized_data_ccd1[idx_in_field, :], **{'spread':True})
+
         # plot 1
-        plt.plot(wvl_ccd3, field_mean_halpha)
+        # plt.plot(wvl_ccd3, all_mean_halpha - field_mean_halpha, color='red', alpha=0.9)
+        # idx_plot = np.logical_and(field_mean_halpha <= 0.02,
+        #                           field_mean_halpha >= -0.02)
+        plt.fill_between(wvl_ccd3, np.apply_along_axis(spectra_stat, 0, normalized_data_ccd3[idx_in_field, :], **{'percentile':90}),
+                                   np.apply_along_axis(spectra_stat, 0, normalized_data_ccd3[idx_in_field, :], **{'percentile':10}),
+                         color='0.8')
+        plt.fill_between(wvl_ccd3, np.apply_along_axis(spectra_stat, 0, normalized_data_ccd3[idx_in_field, :], **{'percentile':70}),
+                                   np.apply_along_axis(spectra_stat, 0, normalized_data_ccd3[idx_in_field, :], **{'percentile':30}),
+                         color='0.4')
+        plt.plot(wvl_ccd3, field_mean_halpha, color='black', linewidth=0.4)
+        # plt.plot(wvl_ccd3, all_mean_halpha / field_mean_halpha, color='blue')
+        # plt.errorbar(wvl_ccd3, field_mean_halpha, yerr=field_std_halpha, markersize=0, elinewidth=0.01, color='black', errorevery=10)
         plt.xlim(halpha_lim)
-        plt.ylim((-0.1, 0.1))
-        plt.savefig('halpha_ra{:f03.1}_dec{:f03.1}.png'.format(ra_center, dec_center), dpi=350)
+        plt.ylim((-0.05, 0.05))
+        plt.savefig('halpha_ra{:03.1f}_dec{:03.1f}.png'.format(ra_center, dec_center), dpi=350)
         plt.close()
+
         # plot 2
-        plt.plot(wvl_ccd1, field_mean_hbeta)
-        plt.xlim(halpha_lim)
-        plt.ylim((-0.1, 0.1))
-        plt.savefig('halpha_ra{:f03.1}_dec{:f03.1}.png'.format(ra_center, dec_center), dpi=350)
+        # idx_plot = np.logical_and(field_mean_hbeta <= 0.02,
+        #                           field_mean_hbeta >= -0.02)
+        plt.plot(wvl_ccd1, field_mean_hbeta, color='black')
+        # plt.plot(wvl_ccd1, all_mean_hbeta - field_mean_hbeta, color='blue')
+        # plt.plot(wvl_ccd1, all_mean_hbeta / field_mean_hbeta, color='blue')
+        # plt.errorbar(wvl_ccd1, field_mean_hbeta, yerr=field_std_hbeta, markersize=0)
+        plt.xlim(hbeta_lim)
+        plt.ylim((-0.05, 0.05))
+        plt.savefig('hbeta_ra{:03.1f}_dec{:03.1f}.png'.format(ra_center, dec_center), dpi=350)
         plt.close()
 
