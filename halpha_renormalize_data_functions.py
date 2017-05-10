@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -6,6 +8,12 @@ from scipy.interpolate import lagrange, splrep, splev
 
 from lmfit import minimize, Parameters, report_fit, Minimizer
 from lmfit.models import GaussianModel, LorentzianModel, VoigtModel, LinearModel, ConstantModel, PolynomialModel
+
+
+def ch_dir(dir_name):
+    if not os.path.isdir(dir_name):
+        os.mkdir(dir_name)
+    os.chdir(dir_name)
 
 
 # function to be minimized

@@ -12,6 +12,16 @@ from halpha_renormalize_data_functions import *
 imp.load_source('s_collection', '../Carbon-Spectra/spectra_collection_functions.py')
 from s_collection import CollectionParameters
 
+# if processing should be resumed from the endpoint, TODO: wvl range should be read from output csv files
+RESUME_PROCESSING = True
+
+# determine csv outputs
+txt_out_sobject = 'report_sobject_ids.csv'
+txt_out_wvl1 = 'report_wavelengths_ccd1.csv'
+txt_out_wvl3 = 'report_wavelengths_ccd3.csv'
+txt_out_spectra1 = 'normalized_spectra_ccd1.csv'
+txt_out_spectra3 = 'normalized_spectra_ccd3.csv'
+
 print 'Reading data sets'
 galah_data_dir = '/home/klemen/GALAH_data/'
 galah_param = Table.read(galah_data_dir+'sobject_iraf_52_reduced.csv')
@@ -24,14 +34,23 @@ wvl_values_ccd1 = csv_param_ccd1.get_wvl_values()
 csv_param_ccd3 = CollectionParameters(spectra_file_ccd3)
 wvl_values_ccd3 = csv_param_ccd3.get_wvl_values()
 
+# change to output directory
+out_dir = 'H_spectra_normalization'
+ch_dir(out_dir)
+
 # object selection criteria
 # must be a giant - objects are further away than dwarfs
 print 'Number of all objects: '+str(len(galah_param))
-idx_object_use = galah_param['logg_guess'] < 3.5
-# idx_object_use = galah_param['sobject_id'] == 131216001101091
-# must have a decent snr value
-idx_object_use = np.logical_and(idx_object_use,
-                                galah_param['snr_c3_guess'] > 80)
+if not RESUME_PROCESSING:
+    idx_object_use = galah_param['logg_guess'] < 3.5
+    # idx_object_use = galah_param['sobject_id'] == 131216001101091
+    # must have a decent snr value
+    idx_object_use = np.logical_and(idx_object_use,
+                                    galah_param['snr_c3_guess'] > 80)
+else:
+    sobjects_used = pd.read_csv(txt_out_sobject, sep=',', header=None).values[0]
+    idx_object_use = np.in1d(galah_param['sobject_id'].data, sobjects_used)
+
 print 'Number of used objects: '+str(np.sum(idx_object_use))
 # create a subset of input object tables
 galah_param = galah_param[idx_object_use].filled()  # handle masked values
@@ -64,42 +83,37 @@ print ' cols for ccd3: '+str(len(wvl_read_ccd3))
 ccd3_data = pd.read_csv(galah_data_dir + spectra_file_ccd3, sep=',', header=None, na_values='nan',
                         usecols=idx_alpha[0], skiprows=np.where(np.logical_not(idx_object_use))[0]).values
 
-# change to output directory
-out_dir = 'H_spectra_normalization_3'
-if not os.path.isdir(out_dir):
-    os.mkdir(out_dir)
-os.chdir(out_dir)
+if not RESUME_PROCESSING:
+    print 'Writing initial outputs'
+    # create outputs
+    out_files = [txt_out_sobject, txt_out_wvl1, txt_out_wvl3, txt_out_spectra1, txt_out_spectra3]
+    for out_file in out_files:
+        new_txt_file(out_file)
 
-
-print 'Writing initial outputs'
-# determine csv outputs
-txt_out_sobject = 'report_sobject_ids.csv'
-txt_out_wvl1 = 'report_wavelengths_ccd1.csv'
-txt_out_wvl3 = 'report_wavelengths_ccd3.csv'
-txt_out_spectra1 = 'normalized_spectra_ccd1.csv'
-txt_out_spectra3 = 'normalized_spectra_ccd3.csv'
-
-# create outputs
-out_files = [txt_out_sobject, txt_out_wvl1, txt_out_wvl3, txt_out_spectra1, txt_out_spectra3]
-for out_file in out_files:
-    new_txt_file(out_file)
-
-# write outputs
-append_line(txt_out_wvl1, ','.join([str(wvl) for wvl in wvl_read_ccd1]))
-append_line(txt_out_wvl3, ','.join([str(wvl) for wvl in wvl_read_ccd3]))
+    # write outputs
+    append_line(txt_out_wvl1, ','.join([str(wvl) for wvl in wvl_read_ccd1]))
+    append_line(txt_out_wvl3, ','.join([str(wvl) for wvl in wvl_read_ccd3]))
 
 print 'Fitting procedure started'
 # time keeping
 i_t = 1
 total_sec = 0.
 # plot some randomly selected spectra
-# idx_rand = np.arange(1400)
-idx_rand = range(len(galah_param))
+# idx_process = np.arange(1400)
+idx_process = range(len(galah_param))
 
 # write outputs
-append_line(txt_out_sobject, ','.join([str(s_id) for s_id in galah_param['sobject_id'][idx_rand].data]))
+if not RESUME_PROCESSING:
+    append_line(txt_out_sobject, ','.join([str(s_id) for s_id in galah_param['sobject_id'][idx_process].data]))
 
-for i_r in idx_rand:
+# determine the point where the process was terminated
+if RESUME_PROCESSING:
+    print 'Determining number of already processed objects'
+    with open(txt_out_spectra3) as foo:
+        n_out_lines = len(foo.readlines())
+    idx_process = idx_process[n_out_lines:]
+
+for i_r in idx_process:
     object_param = galah_param[i_r]
     sobj_id = object_param['sobject_id']
     print str(i_r+1)+':  '+str(sobj_id)
@@ -123,7 +137,7 @@ for i_r in idx_rand:
     time_delta = time_end-time_start
     print 'Fit time: '+str(datetime.timedelta(seconds=time_delta))
     total_sec += time_delta
-    time_to_end = total_sec/i_t * (len(idx_rand)-i_t)
+    time_to_end = total_sec/i_t * (len(idx_process)-i_t)
     print 'Estimated finished in: '+str(datetime.timedelta(seconds=time_to_end))
     i_t += 1
 
@@ -165,7 +179,7 @@ for i_r in idx_rand:
     axs[1, 1].plot(wvl_read_ccd1, spectra_ccd1_sub, color='black', linewidth=0.5)
     axs[1, 1].set(xlim=(wvl_min_beta, wvl_max_beta), ylim=(-0.2, 0.2), xlabel='Wavelength')
     # plt.tight_layout()
-    plt.savefig(str(sobj_id)+'.png', dpi=250)
+    plt.savefig(str(sobj_id)+'.png', dpi=200)
     plt.close()
     print ''
 
