@@ -21,6 +21,17 @@ def spectra_stat(spect_col, spread=False, percentile=None):
     else:
         return np.nanmean(spect_col[idx_use])
 
+
+def mask_outliers_rows(data, sigma=2.):
+    data_out = np.array(data)
+    for i_r in range(data_out.shape[0]):
+        data_row = data[i_r, :]
+        idx_outlier = np.abs(data_row - np.nanmean(data_row)) > (sigma*np.nanstd(data_row))
+        if np.sum(idx_outlier) > 0:
+            data_out[i_r, idx_outlier] = np.nan
+    return data_out
+
+
 print 'Reading data sets'
 galah_data_dir = '/home/klemen/GALAH_data/'
 galah_param = Table.read(galah_data_dir+'sobject_iraf_52_reduced.csv')
@@ -52,7 +63,7 @@ ra_dec = coord.ICRS(ra=galah_param_norm['ra'].data*un.deg,
 
 all_mean_halpha = np.apply_along_axis(spectra_stat, 0, normalized_data_ccd3)
 # all_mean_hbeta = np.apply_along_axis(spectra_stat, 0, normalized_data_ccd1)
-
+filtered = mask_outliers_rows(normalized_data_ccd3)
 ch_dir('Stacked_plots')
 
 # idx_plot = np.logical_and(all_mean_halpha <= 0.02,
