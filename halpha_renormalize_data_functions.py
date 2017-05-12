@@ -200,3 +200,47 @@ def append_line(filename, line_string, new_line=False):
     else:
         temp.write(line_string)
     temp.close()
+
+
+def spectra_stat(spect_col, spread=False, percentile=None, std=2., median=False):
+    # remove outliers
+    spectra_mean = np.nanmean(spect_col)
+    spectra_std = np.nanstd(spect_col)
+    idx_use = np.abs(spect_col - spectra_mean) < (spectra_std * std)
+    if percentile is not None:
+        return np.nanpercentile(spect_col[idx_use], percentile)
+    elif spread:
+        return np.nanstd(spect_col[idx_use])
+    else:
+        if median:
+            return np.nanmedian(spect_col[idx_use])
+        else:
+            return np.nanmean(spect_col[idx_use])
+
+
+def mask_outliers_rows(data, sigma=2.):
+    data_out = np.array(data)
+    for i_r in range(data_out.shape[0]):
+        data_row = data[i_r, :]
+        idx_outlier = np.abs(data_row - np.nanmean(data_row)) > (sigma*np.nanstd(data_row))
+        if np.sum(idx_outlier) > 0:
+            data_out[i_r, idx_outlier] = np.nan
+    return data_out
+
+
+def euclidean_distance_filter(data_all, data_obj, n_use):
+    # refine them based od spectral similarityy
+    # determine euclidean distance between observed and all other/selected/refined spectra
+    eucl_data = np.power(data_all - data_obj, 2)
+    # sum euclidean distances outside observed region as it can have a large impact on the distance
+    eucl_sum = np.sqrt(np.sum(eucl_data, axis=1))  # TODO: dynamically set those regions
+    idx_select = np.argsort(eucl_sum)[1:n_use+1]  # select spectra with the best match, starts with 1 as the first spectra is the object itself with distance of 0
+    return idx_select
+
+
+def refine_idx_selection(idx_all, idx_subset=None):
+    if idx_subset is None:
+        return np.where(idx_all)[0]
+    else:
+        return np.where(idx_all)[0][idx_subset]
+

@@ -6,30 +6,7 @@ import astropy.coordinates as coord
 import astropy.units as un
 
 from astropy.table import Table
-from halpha_renormalize_data_functions import ch_dir
-
-
-def spectra_stat(spect_col, spread=False, percentile=None):
-    # remove outliers
-    mean = np.nanmean(spect_col)
-    std = np.nanstd(spect_col)
-    idx_use = np.abs(spect_col - mean) < (std * 2.)
-    if percentile is not None:
-        return np.nanpercentile(spect_col[idx_use], percentile)
-    elif spread:
-        return np.nanstd(spect_col[idx_use])
-    else:
-        return np.nanmean(spect_col[idx_use])
-
-
-def mask_outliers_rows(data, sigma=2.):
-    data_out = np.array(data)
-    for i_r in range(data_out.shape[0]):
-        data_row = data[i_r, :]
-        idx_outlier = np.abs(data_row - np.nanmean(data_row)) > (sigma*np.nanstd(data_row))
-        if np.sum(idx_outlier) > 0:
-            data_out[i_r, idx_outlier] = np.nan
-    return data_out
+from halpha_renormalize_data_functions import ch_dir, spectra_stat, mask_outliers_rows
 
 
 print 'Reading data sets'
