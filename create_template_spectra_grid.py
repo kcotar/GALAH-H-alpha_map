@@ -7,7 +7,7 @@ import astropy.units as un
 import time, datetime
 
 from astropy.table import Table
-from halpha_renormalize_data_functions import ch_dir, append_line, new_txt_file, euclidean_distance_filter, refine_idx_selection, spectra_stat
+from halpha_renormalize_data_functions import ch_dir, append_line, new_txt_file, refine_idx_selection, spectra_stat
 
 imp.load_source('s_collection', '../Carbon-Spectra/spectra_collection_functions.py')
 from s_collection import CollectionParameters
@@ -85,6 +85,12 @@ FEH_GRID = np.arange(-2.5, 0.5, FEH_STEP)
 n_grid_points = len(TEFF_GRID) * len(LOGG_GRID) * len(FEH_GRID)
 print 'Number of grid points: '+str(n_grid_points)
 
+# file with template spectra list
+grid_list_csv = 'grid_list.csv'
+if not RESUME_PROCESSING:
+    new_txt_file(grid_list_csv)
+    append_line(grid_list_csv, 'teff,logg,feh', new_line=True)
+
 for obj_teff in TEFF_GRID:
     for obj_logg in LOGG_GRID:
         for obj_feh in FEH_GRID:
@@ -94,6 +100,12 @@ for obj_teff in TEFF_GRID:
             # determine name of the output files
             out_csv = grid_id + '.csv'
             out_png = grid_id + '.png'
+
+            # resume option
+            if RESUME_PROCESSING:
+                if os.path.isfile():
+                    i_t += 1
+                    continue
 
             time_start = time.time()
 
@@ -141,7 +153,10 @@ for obj_teff in TEFF_GRID:
 
                 # save template spectra line to csv files
                 if n_used > 3:
+                    # write outputs
                     append_line(out_csv, ','.join([str(flx) for flx in spectra_template]), new_line=False)
+                    append_line(grid_list_csv, '{:.0f},{:1.2f},{:1.2f}'.format(obj_teff, obj_logg, obj_feh), new_line=True)
+                    # add graphs
                     if plot_graphs:
                         # plot results
                         fig, axs = plt.subplots(2, 1)
@@ -156,7 +171,6 @@ for obj_teff in TEFF_GRID:
                         plt.tight_layout()
                         plt.savefig(out_png, dpi=150)
                         plt.close()
-                    print ''
                 else:
                     # do not save any results
                     pass
@@ -169,3 +183,4 @@ for obj_teff in TEFF_GRID:
             time_to_end = total_sec / i_t * (n_grid_points - i_t)
             print 'Estimated finished in: ' + str(datetime.timedelta(seconds=time_to_end))
             i_t += 1
+            print ''
