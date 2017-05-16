@@ -13,7 +13,7 @@ imp.load_source('s_collection', '../Carbon-Spectra/spectra_collection_functions.
 from s_collection import CollectionParameters
 
 # if processing should be resumed from the endpoint
-RESUME_PROCESSING = False
+RESUME_PROCESSING = True
 # some program setting
 TEFF_SPAN = 250.
 LOGG_SPAN = 0.5

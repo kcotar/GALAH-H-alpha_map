@@ -202,7 +202,7 @@ def append_line(filename, line_string, new_line=False):
     temp.close()
 
 
-def spectra_stat(spect_col, spread=False, percentile=None, std=2., median=False):
+def spectra_stat(spect_col, spread=False, percentile=None, std=2.5, median=False):
     # remove outliers
     spectra_mean = np.nanmean(spect_col)
     spectra_std = np.nanstd(spect_col)

@@ -13,13 +13,13 @@ print 'Reading data sets'
 galah_data_dir = '/home/klemen/GALAH_data/'
 galah_param = Table.read(galah_data_dir+'sobject_iraf_52_reduced.csv')
 
-ch_dir('H_spectra_normalization_3')
+ch_dir('H_flux_template_grid')
 
 txt_out_sobject = 'report_sobject_ids.csv'
 txt_out_wvl1 = 'report_wavelengths_ccd1.csv'
 txt_out_wvl3 = 'report_wavelengths_ccd3.csv'
-txt_out_spectra1 = 'normalized_spectra_ccd1.csv'
-txt_out_spectra3 = 'normalized_spectra_ccd3.csv'
+txt_out_spectra1 = 'residuum_spectra_ccd1.csv'
+txt_out_spectra3 = 'residuum_spectra_ccd3.csv'
 
 sobjects_normalized = pd.read_csv(txt_out_sobject, sep=',', header=None).values[0]
 wvl_ccd1 = np.loadtxt(txt_out_wvl1, delimiter=',')
@@ -72,7 +72,7 @@ for ra_center in np.arange(10, 360, 30):
         # field_std_hbeta = np.apply_along_axis(spectra_stat, 0, normalized_data_ccd1[idx_in_field, :], **{'spread':True})
 
         # plot 1
-        plt.plot(wvl_ccd3, all_mean_halpha - field_mean_halpha, color='red', alpha=0.8)
+        plt.plot(wvl_ccd3, all_mean_halpha - field_mean_halpha - 0.02, color='red', alpha=0.6)
         # idx_plot = np.logical_and(field_mean_halpha <= 0.02,
         #                           field_mean_halpha >= -0.02)
         # plt.fill_between(wvl_ccd3, np.apply_along_axis(spectra_stat, 0, normalized_data_ccd3[idx_in_field, :], **{'percentile':90}),

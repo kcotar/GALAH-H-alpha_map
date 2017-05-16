@@ -89,7 +89,7 @@ print 'Number of grid points: '+str(n_grid_points)
 grid_list_csv = 'grid_list.csv'
 if not RESUME_PROCESSING:
     new_txt_file(grid_list_csv)
-    append_line(grid_list_csv, 'teff,logg,feh', new_line=True)
+    append_line(grid_list_csv, 'teff,logg,feh,n_spectra', new_line=True)
 
 for obj_teff in TEFF_GRID:
     for obj_logg in LOGG_GRID:
@@ -155,7 +155,7 @@ for obj_teff in TEFF_GRID:
                 if n_used > 3:
                     # write outputs
                     append_line(out_csv, ','.join([str(flx) for flx in spectra_template]), new_line=False)
-                    append_line(grid_list_csv, '{:.0f},{:1.2f},{:1.2f}'.format(obj_teff, obj_logg, obj_feh), new_line=True)
+                    append_line(grid_list_csv, '{:.0f},{:1.2f},{:1.2f},{:.0f}'.format(obj_teff, obj_logg, obj_feh, n_used), new_line=True)
                     # add graphs
                     if plot_graphs:
                         # plot results
