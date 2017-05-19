@@ -26,7 +26,7 @@ def turnover_around_center(spectra, wvl, wvl_center, span=0.5):
 
 
 # if processing should be resumed from the endpoint
-RESUME_PROCESSING = True
+RESUME_PROCESSING = False
 USE_TEMPLATE_GRID = True
 # constants
 PEAK_THR = 0.08
@@ -165,8 +165,11 @@ for i_r in idx_process:
         possible_bad = False
 
     # save renormalized results to csv file
-    append_line(txt_out_spectra3, ','.join([str(flx) for flx in residuum_spectra_ccd3]), new_line=True)
-    # append_line(txt_out_spectra1, ','.join([str(flx) for flx in residuum_spectra_ccd1]), new_line=True)
+    if not possible_bad:
+        append_line(txt_out_spectra3, ','.join([str(flx) for flx in residuum_spectra_ccd3]), new_line=True)
+        # append_line(txt_out_spectra1, ','.join([str(flx) for flx in residuum_spectra_ccd1]), new_line=True)
+    else:
+        append_line(txt_out_spectra3, ','.join([str(flx) for flx in np.full_like(residuum_spectra_ccd3, np.nan)]), new_line=True)
 
     # plot results
     if possible_bad:

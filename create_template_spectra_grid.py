@@ -149,6 +149,7 @@ for obj_teff in TEFF_GRID:
                     spectra_template = np.apply_along_axis(spectra_stat, 0, spectral_data_selected,
                                                            median=True, std=spectra_filtering_std)
                 else:
+                    # TODO: optional weights based on per-pixel noise information from original fits file, resampling problem
                     spectra_template = np.nanmedian(spectral_data_selected, axis=0)
 
                 # save template spectra line to csv files
