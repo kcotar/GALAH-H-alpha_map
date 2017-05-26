@@ -15,11 +15,11 @@ from s_collection import CollectionParameters
 # if processing should be resumed from the endpoint
 RESUME_PROCESSING = False
 # some program setting
-TEFF_SPAN = 250.  # span represents the range of parameters around the grid values
-TEFF_STEP = 100.  # step between grid values
+TEFF_SPAN = 300.  # span represents the range of parameters around the grid values
+TEFF_STEP = 150.  # step between grid values
 LOGG_SPAN = 0.5
-LOGG_STEP = 0.2
-FEH_SPAN = 0.25
+LOGG_STEP = 0.25
+FEH_SPAN = 0.2
 FEH_STEP = 0.1
 limit_snr = True
 snr_limits = [15, 25, 40, 45]  # TODO: better definition of those values
@@ -29,14 +29,14 @@ median_correction = True
 spectra_filtering = True
 spectra_filtering_std = 2.5
 plot_graphs = True
-plot_include_all_spectra = True
+plot_include_all_spectra = False
 
 print 'Reading data sets'
 galah_data_input = '/home/klemen/GALAH_data/'
 galah_data_output = '/home/klemen/GALAH_data/Spectra_template_grid/'
 galah_param = Table.read(galah_data_input+'sobject_iraf_52_reduced.csv')
 
-spectra_file = 'galah_dr52_ccd3_6475_6745_interpolated_wvlstep_0.06_spline_restframe.csv'
+spectra_file = 'galah_dr52_ccd3_6475_6745_interpolated_wvlstep_0.02_linear_restframe.csv'
 
 # parse resampling settings from filename
 csv_param = CollectionParameters(spectra_file)
@@ -78,12 +78,18 @@ total_sec = 0.
 idx_snr_ok = galah_param['snr_c{0}_iraf'.format(ccd_number)] > snr_limits[ccd_number-1]
 
 # define template spectra grid values
-TEFF_GRID = np.arange(3000, 7500, TEFF_STEP)
+TEFF_GRID = np.arange(3000, 8200, TEFF_STEP)
 LOGG_GRID = np.arange(0, 7, LOGG_STEP)
 FEH_GRID = np.arange(-2.5, 0.5, FEH_STEP)
 
 n_grid_points = len(TEFF_GRID) * len(LOGG_GRID) * len(FEH_GRID)
 print 'Number of grid points: '+str(n_grid_points)
+
+# create a list of output wavelengths
+grid_list_csv = 'wvl_list.csv'
+txt_file = open(grid_list_csv, 'w')
+txt_file.write(','.join([str(f) for f in wvl_values]))
+txt_file.close()
 
 # file with template spectra list
 grid_list_csv = 'grid_list.csv'
