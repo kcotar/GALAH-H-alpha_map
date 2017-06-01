@@ -28,6 +28,7 @@ n_spectra_selection_max = 150  # not possible for this kind of template
 median_correction = True
 spectra_filtering = True
 spectra_filtering_std = 2.5
+flags_filtering = True
 plot_graphs = True
 plot_include_all_spectra = False
 
@@ -36,7 +37,7 @@ galah_data_input = '/home/klemen/GALAH_data/'
 galah_data_output = '/home/klemen/GALAH_data/Spectra_template_grid/'
 galah_param = Table.read(galah_data_input+'sobject_iraf_52_reduced.csv')
 
-spectra_file = 'galah_dr52_ccd3_6475_6745_interpolated_wvlstep_0.02_linear_restframe.csv'
+spectra_file = 'galah_dr52_ccd3_6475_6745_wvlstep_0.03_lin_RF_renorm.csv'
 
 # parse resampling settings from filename
 csv_param = CollectionParameters(spectra_file)
@@ -47,13 +48,32 @@ ccd_number = int(csv_param.get_ccd())
 # determine csv outputs
 suffix = 'Teff_{:.0f}_logg_{:1.2f}_feh_{:1.2f}'.format(TEFF_SPAN, LOGG_SPAN, FEH_SPAN)
 if snr_limits:
-    suffix += '_snr_{:3.0f}'.format(snr_limits[ccd_number - 1])
+    suffix += '_snr_{:.0f}'.format(snr_limits[ccd_number - 1])
 # if spectra_selection:
 #     suffix += '_best_{:3.0f}'.format(n_spectra_selection_max)
 if median_correction:
     suffix += '_medianshift'
 if spectra_filtering:
-    suffix += '_std_{:1.1f}'.format(spectra_filtering_std)
+    suffix += '_std_{:.1f}'.format(spectra_filtering_std)
+if flags_filtering:
+    suffix += '_redflag'
+    # 0 for no flags
+    # +1 for bad wavelength solution in ccd_1
+    # +2 for bad wavelength solution in ccd_2
+    # +4 for ccd_3
+    # +8 for ccd_4
+    # +16 for molecfit fail in ccd_3
+    # +32 for molecfit fail in ccd_4. Molecfit is not used for ccd_1 and ccd_2
+    # +64 if the object is actually a twilight flat
+    ccd_badwvl_flag = [1, 2, 4, 8]
+    mollecfit_fail = [100, 100, 16, 32]
+    idx_red_flag = np.bitwise_and(galah_param['red_flag'], ccd_badwvl_flag[ccd_number - 1]) == ccd_badwvl_flag[ccd_number - 1]
+    idx_red_flag = np.logical_or(idx_red_flag,
+                                 np.bitwise_and(galah_param['red_flag'], mollecfit_fail[ccd_number - 1]) == mollecfit_fail[ccd_number - 1])
+    idx_red_flag = np.logical_or(idx_red_flag,
+                                 np.bitwise_and(galah_param['red_flag'], 64) == 64)
+    idx_red_flag_ok = np.logical_not(idx_red_flag)
+    print 'Number of removed spectra by reduction flag: '+str(np.sum(idx_red_flag))
 
 # change to output directory
 ch_dir(galah_data_output)
@@ -67,7 +87,14 @@ galah_param = galah_param.filled()  # handle masked values
 # read appropriate subset of data
 print 'Reading resampled GALAH spectra'
 print ' cols for ccd'+str(ccd_number)+': '+str(len(wvl_values))
-spectral_data = pd.read_csv(galah_data_input + spectra_file, sep=',', header=None, na_values='nan').values
+if flags_filtering:
+    # remove or skip from reading flagged data that should not be used
+    spectral_data = pd.read_csv(galah_data_input + spectra_file, sep=',', header=None, na_values='nan',
+                                skiprows=np.where(idx_red_flag)[0]).values
+    print 'Removing flagged data'
+    galah_param = galah_param[idx_red_flag_ok]
+else:
+    spectral_data = pd.read_csv(galah_data_input + spectra_file, sep=',', header=None, na_values='nan').values
 
 print 'Template creation procedure started'
 # time keeping
@@ -159,7 +186,7 @@ for obj_teff in TEFF_GRID:
                     spectra_template = np.nanmedian(spectral_data_selected, axis=0)
 
                 # save template spectra line to csv files
-                if n_used > 3:
+                if n_used >= 3:
                     # write outputs
                     append_line(out_csv, ','.join([str(flx) for flx in spectra_template]), new_line=False)
                     append_line(grid_list_csv, '{:.0f},{:1.2f},{:1.2f},{:.0f}'.format(obj_teff, obj_logg, obj_feh, n_used), new_line=True)

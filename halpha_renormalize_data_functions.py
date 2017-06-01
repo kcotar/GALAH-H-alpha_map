@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from scipy.signal import savgol_filter, argrelextrema, medfilt
-from scipy.interpolate import lagrange, splrep, splev
+from scipy.interpolate import lagrange, splrep, splev, interp1d
 
 from lmfit import minimize, Parameters, report_fit, Minimizer
 from lmfit.models import GaussianModel, LorentzianModel, VoigtModel, LinearModel, ConstantModel, PolynomialModel
@@ -243,4 +243,24 @@ def refine_idx_selection(idx_all, idx_subset=None):
         return np.where(idx_all)[0]
     else:
         return np.where(idx_all)[0][idx_subset]
+
+
+def spectra_resample(spectra, wvl_orig, wvl_target, bspline=True):
+    idx_finite = np.isfinite(spectra)
+    if np.sum(idx_finite) == 0:
+        return spectra
+    min_wvl_s = np.nanmin(wvl_orig[idx_finite])
+    max_wvl_s = np.nanmax(wvl_orig[idx_finite])
+    idx_target = np.logical_and(wvl_target >= min_wvl_s,
+                                wvl_target <= max_wvl_s)
+    if bspline:
+        bspline = splrep(wvl_orig[idx_finite], spectra[idx_finite])    #
+        new_flux = splev(wvl_target[idx_target], bspline)
+    else:
+        func = interp1d(wvl_orig[idx_finite], spectra[idx_finite], assume_sorted=True, kind='linear')
+        new_flux = func(wvl_target[idx_target])
+    nex_flux_out = np.ndarray(len(wvl_target))
+    nex_flux_out.fill(np.nan)
+    nex_flux_out[idx_target] = new_flux
+    return nex_flux_out
 

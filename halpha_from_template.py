@@ -42,13 +42,12 @@ txt_out_spectra3 = 'residuum_spectra_ccd3.csv'
 print 'Reading data sets'
 galah_data_dir = '/home/klemen/GALAH_data/'
 galah_template_dir = '/home/klemen/GALAH_data/Spectra_template/'
-galah_grid_dir = '/home/klemen/GALAH_data/Spectra_template_grid/galah_dr52_ccd3_6475_6745_interpolated_wvlstep_0.06_spline_restframe/Teff_250_logg_0.50_feh_0.25_snr_40_medianshift_std_2.5/'
-
+galah_grid_dir = '/home/klemen/GALAH_data/Spectra_template_grid/galah_dr52_ccd3_6475_6745_wvlstep_0.03_lin_RF_renorm/Teff_300_logg_0.50_feh_0.20_snr_40_medianshift_std_2.5_redflag/'
 galah_param = Table.read(galah_data_dir+'sobject_iraf_52_reduced.csv')
 
-spectra_file_ccd1 = 'galah_dr52_ccd1_4710_4910_interpolated_wvlstep_0.04_spline_restframe.csv'
-spectra_file_ccd3 = 'galah_dr52_ccd3_6475_6745_interpolated_wvlstep_0.06_spline_restframe.csv'
-template_file_ccd3 = 'galah_dr52_ccd3_6475_6745_interpolated_wvlstep_0.06_spline_restframe_teff_250_logg_0.50_feh_0.25_snr_40_medianshift_std_2.5.csv'
+spectra_file_ccd1 = 'galah_dr52_ccd1_4500_4600_wvlstep_0.02_.csv'
+spectra_file_ccd3 = 'galah_dr52_ccd3_6475_6745_wvlstep_0.03_lin_RF_renorm.csv'
+template_file_ccd3 = ''
 # parse resampling settings from filename
 csv_param_ccd1 = CollectionParameters(spectra_file_ccd1)
 wvl_values_ccd1 = csv_param_ccd1.get_wvl_values()
@@ -56,7 +55,7 @@ csv_param_ccd3 = CollectionParameters(spectra_file_ccd3)
 wvl_values_ccd3 = csv_param_ccd3.get_wvl_values()
 
 # change to output directory
-out_dir = 'H_flux_template_grid'
+out_dir = 'H_flux_template_grid_0.03_renorm'
 ch_dir(out_dir)
 
 # object selection criteria
@@ -66,6 +65,13 @@ if not RESUME_PROCESSING:
     idx_object_use = galah_param['logg_guess'] < 3.5
     idx_object_use = np.logical_and(idx_object_use,
                                     galah_param['snr_c3_guess'] > 80)
+    # spectra reduction quality cuts
+    idx_object_use = np.logical_and(idx_object_use,
+                                    np.bitwise_and(galah_param['red_flag'], 4) == 0)  # remove bad wvl reductions in ccd3
+    idx_object_use = np.logical_and(idx_object_use,
+                                    np.bitwise_and(galah_param['red_flag'], 16) == 0)  # remove failed molecfit in ccd3
+    idx_object_use = np.logical_and(idx_object_use,
+                                    np.bitwise_and(galah_param['red_flag'], 64) == 0)  # remove twilight flat
 else:
     sobjects_used = pd.read_csv(txt_out_sobject, sep=',', header=None).values[0]
     idx_object_use = np.in1d(galah_param['sobject_id'].data, sobjects_used)
