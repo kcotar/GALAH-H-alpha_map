@@ -37,7 +37,7 @@ galah_data_input = '/home/klemen/GALAH_data/'
 galah_data_output = '/home/klemen/GALAH_data/Spectra_template_grid/'
 galah_param = Table.read(galah_data_input+'sobject_iraf_52_reduced.csv')
 
-spectra_file = 'galah_dr52_ccd3_6475_6745_wvlstep_0.03_lin_RF_renorm.csv'
+spectra_file = 'galah_dr52_ccd1_4710_4910_wvlstep_0.02_lin_RF_renorm.csv'
 
 # parse resampling settings from filename
 csv_param = CollectionParameters(spectra_file)
@@ -66,7 +66,7 @@ if flags_filtering:
     # +32 for molecfit fail in ccd_4. Molecfit is not used for ccd_1 and ccd_2
     # +64 if the object is actually a twilight flat
     ccd_badwvl_flag = [1, 2, 4, 8]
-    mollecfit_fail = [100, 100, 16, 32]
+    mollecfit_fail = [128, 128, 16, 32]
     idx_red_flag = np.bitwise_and(galah_param['red_flag'], ccd_badwvl_flag[ccd_number - 1]) == ccd_badwvl_flag[ccd_number - 1]
     idx_red_flag = np.logical_or(idx_red_flag,
                                  np.bitwise_and(galah_param['red_flag'], mollecfit_fail[ccd_number - 1]) == mollecfit_fail[ccd_number - 1])
