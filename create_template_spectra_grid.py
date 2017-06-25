@@ -22,12 +22,16 @@ LOGG_STEP = 0.25
 FEH_SPAN = 0.2
 FEH_STEP = 0.1
 limit_snr = True
-snr_limits = [15, 25, 40, 45]  # TODO: better definition of those values
+# TODO: better definition of SNR limits values
+snr_limits = [20, 30, 40, 45]  # for guess snr values (snr_c1_guess)
+# snr_limits = [15, 20, 30, 35]  # for iraf snr values (snr_c1_iraf)
 spectra_selection = False  # should be always set to FALSE as it is
 n_spectra_selection_max = 150  # not possible for this kind of template
 median_correction = True
 spectra_filtering = True
 spectra_filtering_std = 2.5
+rv_filtering = True
+rv_filtering_e = 5  # km/s
 flags_filtering = True
 plot_graphs = True
 plot_include_all_spectra = False
@@ -35,9 +39,9 @@ plot_include_all_spectra = False
 print 'Reading data sets'
 galah_data_input = '/home/klemen/GALAH_data/'
 galah_data_output = '/home/klemen/GALAH_data/Spectra_template_grid/'
-galah_param = Table.read(galah_data_input+'sobject_iraf_52_reduced.csv')
+galah_param = Table.read(galah_data_input+'sobject_iraf_52_reduced.fits')
 
-spectra_file = 'galah_dr52_ccd1_4710_4910_wvlstep_0.02_lin_RF_renorm.csv'
+spectra_file = 'galah_dr52_ccd3_6475_6745_wvlstep_0.03_lin_RF_renorm.csv'
 
 # parse resampling settings from filename
 csv_param = CollectionParameters(spectra_file)
@@ -72,8 +76,16 @@ if flags_filtering:
                                  np.bitwise_and(galah_param['red_flag'], mollecfit_fail[ccd_number - 1]) == mollecfit_fail[ccd_number - 1])
     idx_red_flag = np.logical_or(idx_red_flag,
                                  np.bitwise_and(galah_param['red_flag'], 64) == 64)
-    idx_red_flag_ok = np.logical_not(idx_red_flag)
     print 'Number of removed spectra by reduction flag: '+str(np.sum(idx_red_flag))
+
+# select data with high SNR
+idx_snr_ok = galah_param['snr_c{0}_guess'.format(ccd_number)] > snr_limits[ccd_number-1]
+if rv_filtering:
+    idx_snr_ok = np.logical_and(idx_snr_ok, galah_param['e_rv_guess'] > rv_filtering_e)
+print 'Number of object with bad snr or rv error value: '+str(np.sum(idx_snr_ok))
+idx_bad = np.logical_or(idx_red_flag, idx_snr_ok)
+idx_ok = np.logical_not(idx_bad)
+print 'Final number of spectra that will be used: '+str(np.sum(idx_ok))
 
 # change to output directory
 ch_dir(galah_data_output)
@@ -90,9 +102,9 @@ print ' cols for ccd'+str(ccd_number)+': '+str(len(wvl_values))
 if flags_filtering:
     # remove or skip from reading flagged data that should not be used
     spectral_data = pd.read_csv(galah_data_input + spectra_file, sep=',', header=None, na_values='nan',
-                                skiprows=np.where(idx_red_flag)[0]).values
+                                skiprows=np.where(idx_bad)[0]).values
     print 'Removing flagged data'
-    galah_param = galah_param[idx_red_flag_ok]
+    galah_param = galah_param[idx_ok]
 else:
     spectral_data = pd.read_csv(galah_data_input + spectra_file, sep=',', header=None, na_values='nan').values
 
@@ -100,9 +112,6 @@ print 'Template creation procedure started'
 # time keeping
 i_t = 1
 total_sec = 0.
-
-# select data with high SNR
-idx_snr_ok = galah_param['snr_c{0}_iraf'.format(ccd_number)] > snr_limits[ccd_number-1]
 
 # define template spectra grid values
 TEFF_GRID = np.arange(3000, 8200, TEFF_STEP)
@@ -151,16 +160,18 @@ for obj_teff in TEFF_GRID:
             n_similar = np.sum(idx_select)
             print ' Number of objects: ' + str(n_similar)
             n_used = n_similar
-            if limit_snr:
-                idx_select = np.logical_and(idx_select, idx_snr_ok)
-                n_used = np.sum(idx_select)
-                print ' After SNR limit {0}'.format(n_used)
+            # NOTE: The following lines were removed as this is already done in the data reading stage
+            # if limit_snr:
+            #     idx_select = np.logical_and(idx_select, idx_snr_ok)
+            #     n_used = np.sum(idx_select)
+            #     print ' After SNR limit {0}'.format(n_used)
 
             if n_similar < 5:
                 print '  Skipping this object'
                 # do not save any results
             else:
                 if spectra_selection:
+                    # Select only few spectra with the best match to some spectra
                     # idx_select_use = euclidean_distance_filter(spectral_data[idx_select], spectra, n_spectra_selection_max)
                     # n_used = np.sum(idx_select_use)
                     # print ' After likens estimation {0}'.format(n_used)
