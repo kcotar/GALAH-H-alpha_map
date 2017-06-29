@@ -42,12 +42,12 @@ txt_out_spectra3 = 'residuum_spectra_ccd3.csv'
 print 'Reading data sets'
 galah_data_dir = '/home/klemen/GALAH_data/'
 galah_template_dir = '/home/klemen/GALAH_data/Spectra_template/'
-galah_grid_dir_ccd1 = '/home/klemen/GALAH_data/Spectra_template_grid/galah_dr52_ccd1_4710_4910_wvlstep_0.02_lin_RF_renorm/Teff_300_logg_0.50_feh_0.20_snr_15_medianshift_std_2.5_redflag/'
-galah_grid_dir_ccd3 = '/home/klemen/GALAH_data/Spectra_template_grid/galah_dr52_ccd3_6475_6745_wvlstep_0.03_lin_RF_renorm/Teff_300_logg_0.50_feh_0.20_snr_40_medianshift_std_2.5_redflag/'
-galah_param = Table.read(galah_data_dir+'sobject_iraf_52_reduced.csv')
+galah_grid_dir_ccd1 = '/home/klemen/GALAH_data/Spectra_template_grid/galah_dr52_ccd1_4710_4910_wvlstep_0.02_lin_RF/Teff_300_logg_0.50_feh_0.20_snr_20_medianshift_std_3.0_redflag/'
+galah_grid_dir_ccd3 = '/home/klemen/GALAH_data/Spectra_template_grid/galah_dr52_ccd3_6475_6745_wvlstep_0.03_lin_RF/Teff_300_logg_0.50_feh_0.20_snr_40_medianshift_std_3.0_redflag/'
+galah_param = Table.read(galah_data_dir+'sobject_iraf_52_reduced.fits')
 
-spectra_file_ccd1 = 'galah_dr52_ccd1_4710_4910_wvlstep_0.02_lin_RF_renorm.csv'
-spectra_file_ccd3 = 'galah_dr52_ccd3_6475_6745_wvlstep_0.03_lin_RF_renorm.csv'
+spectra_file_ccd1 = 'galah_dr52_ccd1_4710_4910_wvlstep_0.02_lin_RF.csv'
+spectra_file_ccd3 = 'galah_dr52_ccd3_6475_6745_wvlstep_0.03_lin_RF.csv'
 template_file_ccd3 = ''
 # parse resampling settings from filename
 csv_param_ccd1 = CollectionParameters(spectra_file_ccd1)
@@ -56,7 +56,7 @@ csv_param_ccd3 = CollectionParameters(spectra_file_ccd3)
 wvl_values_ccd3 = csv_param_ccd3.get_wvl_values()
 
 # change to output directory
-out_dir = 'H_flux_template_grid_alpha_beta_complete_renorm'
+out_dir = 'H_flux_template_grid_alpha_beta_complete'
 ch_dir(out_dir)
 
 # object selection criteria
@@ -90,7 +90,8 @@ galah_param = galah_param[idx_object_use].filled()  # handle masked values
 ra_dec = coord.ICRS(ra=galah_param['ra'].data*un.deg,
                     dec=galah_param['dec'].data*un.deg)
 
-wvl_read_range = 250
+
+wvl_read_range = 100
 wvl_plot_range = 40
 
 HBETA_WVL = 4861.36

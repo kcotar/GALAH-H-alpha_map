@@ -42,7 +42,8 @@ ch_dir(out_dir)
 # must be a giant - objects are further away than dwarfs
 print 'Number of all objects: '+str(len(galah_param))
 if not RESUME_PROCESSING:
-    idx_object_use = galah_param['logg_guess'] < 3.5
+    # select giants based on hr diagram
+    idx_object_use = (-2. / 1500. * galah_param['teff_guess'][idx_in_galah] + 10) > galah_param['logg_guess']
     # idx_object_use = galah_param['sobject_id'] == 131216001101091
     # must have a decent snr value
     idx_object_use = np.logical_and(idx_object_use,

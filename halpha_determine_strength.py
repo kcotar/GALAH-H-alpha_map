@@ -22,14 +22,14 @@ def wvl_values_range_lines(lines, wvl, width=1.):
 
 print 'Reading data sets'
 galah_data_dir = '/home/klemen/GALAH_data/'
-galah_param = Table.read(galah_data_dir+'sobject_iraf_52_reduced.csv')
+galah_param = Table.read(galah_data_dir+'sobject_iraf_52_reduced.fits')
 dibs = Table.read('dibs_3.csv', format='ascii.csv')
 
 # solar flats data
-flat_spectrum_file = 'galah_dr52_ccd3_6475_6745_wvlstep_0.03_lin_RF_renorm.csv'
-solar_spectra = np.loadtxt(flat_spectrum_file, delimiter=',')
-csv_param = CollectionParameters(flat_spectrum_file)
-wvl_solar = csv_param.get_wvl_values()
+# flat_spectrum_file = 'galah_dr52_ccd1_4710_4910_wvlstep_0.02_lin_RF_renorm.csv'
+# solar_spectra = np.loadtxt(flat_spectrum_file, delimiter=',')
+# csv_param = CollectionParameters(flat_spectrum_file)
+# wvl_solar = csv_param.get_wvl_values()
 # solar_data = pd.read_csv('hermes.spec3', sep='  ', header=None).values
 # solar_spectra = solar_data[:, 1]
 # wvl_solar = solar_data[:, 0]
@@ -38,10 +38,10 @@ ch_dir('H_flux_template_grid_alpha_beta_complete_renorm')
 # ch_dir('_test')
 
 C_LIGHT = 299792458  # m/s
-to_barycentric = True
+to_barycentric = False
 by_fields = False
-high_snr = True
-remove_tellurics = True
+high_snr = False
+remove_tellurics = False
 txt_out_sobject = 'report_sobject_ids.csv'
 txt_out_wvl1 = 'report_wavelengths_ccd1.csv'
 txt_out_wvl3 = 'report_wavelengths_ccd3.csv'
@@ -93,8 +93,8 @@ if to_barycentric:
 
 if remove_tellurics:
     # atmospheric features line list
-    teluric_line_list = pd.read_csv('../GALAH-teluric-lines/telluric_linelist.csv')
-    emission_line_list = pd.read_csv('../GALAH-teluric-lines/emission_linelist_2_used.csv')
+    teluric_line_list = pd.read_csv('/home/klemen/GALAH-teluric-lines/telluric_linelist.csv')  # should work with ../
+    emission_line_list = pd.read_csv('/home/klemen/GALAH-teluric-lines/emission_linelist_2_used.csv')
     # subset of atmospheric lines
     teluric_line_list = teluric_line_list[np.logical_and(teluric_line_list['Ang'] > np.min(wvl_ccd3),
                                                          teluric_line_list['Ang'] < np.max(wvl_ccd3))]
@@ -108,7 +108,7 @@ if remove_tellurics:
             print i_r
         galah_obj = galah_param_norm[i_r]
         # determine shift velocity for atmospheric lines
-        velocity_shift = -1. * galah_obj['rv_bary']
+        velocity_shift = -1. * galah_obj['v_bary']
         if not to_barycentric:
             velocity_shift += galah_obj['rv_guess_shift']
         idx_problematic_wvl = wvl_values_range_lines(problematic_line_list/(1 + velocity_shift * 1000. / C_LIGHT), wvl_ccd3, width=1.)
@@ -117,9 +117,9 @@ if remove_tellurics:
         normalized_data_ccd3[i_r, :] = spectra_obj
 
 if high_snr:
-    snr_lim_values = list([80, 100, 120, 140, 160, 180, 200, 220])
+    snr_lim_values = list([40., 80, 100, 120, 140, 160, 180, 200, 220])
 else:
-    snr_lim_values = list([80])
+    snr_lim_values = list([40])
 
 # all_mean_hbeta = np.apply_along_axis(spectra_stat, 0, normalized_data_ccd1)
 filtered = mask_outliers_rows(normalized_data_ccd3)
@@ -131,6 +131,8 @@ if by_fields:
     out_dir += '_obsfields'
 if high_snr:
     out_dir += '_highsnr'
+if remove_tellurics:
+    out_dir += '_notellurics'
 ch_dir(out_dir)
 
 # idx_plot = np.logical_and(all_mean_halpha <= 0.02,

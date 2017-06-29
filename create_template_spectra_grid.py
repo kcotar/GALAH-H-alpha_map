@@ -29,7 +29,7 @@ spectra_selection = False  # should be always set to FALSE as it is
 n_spectra_selection_max = 150  # not possible for this kind of template
 median_correction = True
 spectra_filtering = True
-spectra_filtering_std = 2.5
+spectra_filtering_std = 3.
 rv_filtering = True
 rv_filtering_e = 5  # km/s
 flags_filtering = True
@@ -41,7 +41,7 @@ galah_data_input = '/home/klemen/GALAH_data/'
 galah_data_output = '/home/klemen/GALAH_data/Spectra_template_grid/'
 galah_param = Table.read(galah_data_input+'sobject_iraf_52_reduced.fits')
 
-spectra_file = 'galah_dr52_ccd3_6475_6745_wvlstep_0.03_lin_RF_renorm.csv'
+spectra_file = 'galah_dr52_ccd1_4710_4910_wvlstep_0.02_lin_RF.csv'
 
 # parse resampling settings from filename
 csv_param = CollectionParameters(spectra_file)
