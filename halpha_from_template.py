@@ -10,7 +10,7 @@ from halpha_renormalize_data_functions import *
 from template_spectra_function import *
 
 imp.load_source('s_collection', '../Carbon-Spectra/spectra_collection_functions.py')
-from s_collection import CollectionParameters
+from s_collection import CollectionParameters, read_pkl_spectra, save_pkl_spectra
 
 
 # Functions
@@ -46,8 +46,8 @@ galah_grid_dir_ccd1 = '/home/klemen/GALAH_data/Spectra_template_grid/galah_dr52_
 galah_grid_dir_ccd3 = '/home/klemen/GALAH_data/Spectra_template_grid/galah_dr52_ccd3_6475_6745_wvlstep_0.03_lin_RF/Teff_300_logg_0.50_feh_0.20_snr_40_medianshift_std_3.0_redflag/'
 galah_param = Table.read(galah_data_dir+'sobject_iraf_52_reduced.fits')
 
-spectra_file_ccd1 = 'galah_dr52_ccd1_4710_4910_wvlstep_0.02_lin_RF.csv'
-spectra_file_ccd3 = 'galah_dr52_ccd3_6475_6745_wvlstep_0.03_lin_RF.csv'
+spectra_file_ccd1 = 'galah_dr52_ccd1_4710_4910_wvlstep_0.04_lin_RF.pkl'
+spectra_file_ccd3 = 'galah_dr52_ccd3_6475_6745_wvlstep_0.06_lin_RF.pkl'
 template_file_ccd3 = ''
 # parse resampling settings from filename
 csv_param_ccd1 = CollectionParameters(spectra_file_ccd1)
@@ -66,10 +66,11 @@ if not RESUME_PROCESSING:
     # OLD definition of giant
     # idx_object_use = galah_param['logg_guess'] < 3.5
     # NEW definition of giants
-    idx_object_use = (-2./1500.*galah_param['teff_guess'] + 10) > galah_param['logg_guess']
+    # idx_object_use = (-2./1500.*galah_param['teff_guess'] + 10) > galah_param['logg_guess']
+    idx_object_use = galah_param['teff_guess'] > 0
 
     idx_object_use = np.logical_and(idx_object_use,
-                                    galah_param['snr_c3_guess'] > 50)
+                                    galah_param['snr_c2_guess'] > 40)
     # spectra reduction quality cuts
     idx_object_use = np.logical_and(idx_object_use,
                                     np.bitwise_and(galah_param['red_flag'], 1) == 0)  # remove bad ccd1 wvl reductions
@@ -111,11 +112,13 @@ wvl_read_ccd3 = wvl_values_ccd3[idx_alpha]
 # read appropriate subset of data
 print 'Reading resampled GALAH spectra'
 print ' cols for ccd1: '+str(len(wvl_read_ccd1))
-ccd1_data = pd.read_csv(galah_data_dir + spectra_file_ccd1, sep=',', header=None, na_values='nan',
-                        usecols=idx_beta[0], skiprows=np.where(np.logical_not(idx_object_use))[0]).values
+ccd1_data = read_pkl_spectra(galah_data_dir + spectra_file_ccd1, read_rows=np.where(idx_object_use)[0], read_cols=idx_beta[0])
+# ccd1_data = pd.read_csv(galah_data_dir + spectra_file_ccd1, sep=',', header=None, na_values='nan',
+#                         usecols=idx_beta[0], skiprows=np.where(np.logical_not(idx_object_use))[0]).values
 print ' cols for ccd3: '+str(len(wvl_read_ccd3))
-ccd3_data = pd.read_csv(galah_data_dir + spectra_file_ccd3, sep=',', header=None, na_values='nan',
-                        usecols=idx_alpha[0], skiprows=np.where(np.logical_not(idx_object_use))[0]).values
+ccd1_data = read_pkl_spectra(galah_data_dir + spectra_file_ccd1, read_rows=np.where(idx_object_use)[0], read_cols=idx_alpha[0])
+# ccd3_data = pd.read_csv(galah_data_dir + spectra_file_ccd3, sep=',', header=None, na_values='nan',
+#                         usecols=idx_alpha[0], skiprows=np.where(np.logical_not(idx_object_use))[0]).values
 
 if USE_TEMPLATE_GRID:
     template_grid_list_ccd1 = Table.read(galah_grid_dir_ccd1 + 'grid_list.csv', format='ascii.csv')

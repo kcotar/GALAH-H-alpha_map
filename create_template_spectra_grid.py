@@ -6,42 +6,49 @@ import astropy.coordinates as coord
 import astropy.units as un
 import time, datetime
 
-from astropy.table import Table
+from astropy.table import Table, join
 from halpha_renormalize_data_functions import ch_dir, append_line, new_txt_file, refine_idx_selection, spectra_stat
 
 imp.load_source('s_collection', '../Carbon-Spectra/spectra_collection_functions.py')
-from s_collection import CollectionParameters
+from s_collection import *
 
 # if processing should be resumed from the endpoint
 RESUME_PROCESSING = False
 # some program setting
-TEFF_SPAN = 300.  # span represents the range of parameters around the grid values
-TEFF_STEP = 150.  # step between grid values
-LOGG_SPAN = 0.5
-LOGG_STEP = 0.25
+TEFF_SPAN = 100.  # span represents the range of parameters around the grid values
+TEFF_STEP = 75.  # step between grid values
+LOGG_SPAN = 0.2
+LOGG_STEP = 0.1
 FEH_SPAN = 0.2
 FEH_STEP = 0.1
 limit_snr = True
 # TODO: better definition of SNR limits values
-snr_limits = [20, 30, 40, 45]  # for guess snr values (snr_c1_guess)
-# snr_limits = [15, 20, 30, 35]  # for iraf snr values (snr_c1_iraf)
+# snr_limits = [20, 30, 40, 45]  # for guess snr values (snr_c1_guess)
+snr_limits = [10, 15, 25, 30]  # for iraf snr values (snr_c1_iraf)
 spectra_selection = False  # should be always set to FALSE as it is
 n_spectra_selection_max = 150  # not possible for this kind of template
-median_correction = True
+median_correction = False
 spectra_filtering = True
 spectra_filtering_std = 3.
 rv_filtering = True
-rv_filtering_e = 5  # km/s
+rv_filtering_e = 3  # km/s
 flags_filtering = True
 plot_graphs = True
 plot_include_all_spectra = False
 
 print 'Reading data sets'
-galah_data_input = '/home/klemen/GALAH_data/'
-galah_data_output = '/home/klemen/GALAH_data/Spectra_template_grid/'
-galah_param = Table.read(galah_data_input+'sobject_iraf_52_reduced.fits')
+galah_data_input = '/home/klemen/data4_mount/'
+galah_data_output = '/home/klemen/data4_mount/'
+galah_param = Table.read(galah_data_input+'sobject_iraf_52_reduced_20171111.fits')
+cannon_param = Table.read(galah_data_input+'sobject_iraf_iDR2_171103_cannon.fits')['sobject_id', 'Teff_cannon', 'Feh_cannon', 'Logg_cannon', 'flag_cannon']
+cannon_param = cannon_param[cannon_param['flag_cannon'] == 0]
 
-spectra_file = 'galah_dr52_ccd1_4710_4910_wvlstep_0.02_lin_RF.csv'
+print len(galah_param), 'Before join'
+galah_param = join(galah_param, cannon_param, keys='sobject_id', join_type='left')
+print len(galah_param), 'After join'
+
+
+spectra_file = 'galah_dr52_ccd3_6475_6745_wvlstep_0.030_ext0_renorm_20171111.pkl'
 
 # parse resampling settings from filename
 csv_param = CollectionParameters(spectra_file)
@@ -69,17 +76,18 @@ if flags_filtering:
     # +16 for molecfit fail in ccd_3
     # +32 for molecfit fail in ccd_4. Molecfit is not used for ccd_1 and ccd_2
     # +64 if the object is actually a twilight flat
-    ccd_badwvl_flag = [1, 2, 4, 8]
-    mollecfit_fail = [128, 128, 16, 32]
-    idx_red_flag = np.bitwise_and(galah_param['red_flag'], ccd_badwvl_flag[ccd_number - 1]) == ccd_badwvl_flag[ccd_number - 1]
-    idx_red_flag = np.logical_or(idx_red_flag,
-                                 np.bitwise_and(galah_param['red_flag'], mollecfit_fail[ccd_number - 1]) == mollecfit_fail[ccd_number - 1])
-    idx_red_flag = np.logical_or(idx_red_flag,
-                                 np.bitwise_and(galah_param['red_flag'], 64) == 64)
+    # ccd_badwvl_flag = [1, 2, 4, 8]
+    # mollecfit_fail = [128, 128, 16, 32]
+    # idx_red_flag = np.bitwise_and(galah_param['red_flag'], ccd_badwvl_flag[ccd_number - 1]) == ccd_badwvl_flag[ccd_number - 1]
+    # idx_red_flag = np.logical_or(idx_red_flag,
+    #                              np.bitwise_and(galah_param['red_flag'], mollecfit_fail[ccd_number - 1]) == mollecfit_fail[ccd_number - 1])
+    # idx_red_flag = np.logical_or(idx_red_flag,
+    #                              np.bitwise_and(galah_param['red_flag'], 64) == 64)
+    idx_red_flag = galah_param['red_flag'] != 0
     print 'Number of removed spectra by reduction flag: '+str(np.sum(idx_red_flag))
 
 # select data with high SNR
-idx_snr_ok = galah_param['snr_c{0}_guess'.format(ccd_number)] > snr_limits[ccd_number-1]
+idx_snr_ok = galah_param['snr_c{0}_iraf'.format(ccd_number)] > snr_limits[ccd_number-1]
 if rv_filtering:
     idx_snr_ok = np.logical_and(idx_snr_ok, galah_param['e_rv_guess'] > rv_filtering_e)
 print 'Number of object with bad snr or rv error value: '+str(np.sum(idx_snr_ok))
@@ -101,12 +109,11 @@ print 'Reading resampled GALAH spectra'
 print ' cols for ccd'+str(ccd_number)+': '+str(len(wvl_values))
 if flags_filtering:
     # remove or skip from reading flagged data that should not be used
-    spectral_data = pd.read_csv(galah_data_input + spectra_file, sep=',', header=None, na_values='nan',
-                                skiprows=np.where(idx_bad)[0]).values
+    spectral_data = read_pkl_spectra(galah_data_input+spectra_file, read_rows=np.where(idx_ok)[0], read_cols=None)
     print 'Removing flagged data'
     galah_param = galah_param[idx_ok]
 else:
-    spectral_data = pd.read_csv(galah_data_input + spectra_file, sep=',', header=None, na_values='nan').values
+    spectral_data = read_pkl_spectra(galah_data_input+spectra_file, read_rows=None, read_cols=None)
 
 print 'Template creation procedure started'
 # time keeping
@@ -152,10 +159,10 @@ for obj_teff in TEFF_GRID:
             time_start = time.time()
 
             # get objects that have similar physical parameters to the grid object
-            idx_select = np.logical_and(np.abs(galah_param['logg_guess'] - obj_logg) < (LOGG_SPAN / 2.),
-                                        np.abs(galah_param['teff_guess'] - obj_teff) < (TEFF_SPAN / 2.))
+            idx_select = np.logical_and(np.abs(galah_param['Logg_cannon'] - obj_logg) < (LOGG_SPAN / 2.),
+                                        np.abs(galah_param['Teff_cannon'] - obj_teff) < (TEFF_SPAN / 2.))
             idx_select = np.logical_and(idx_select,
-                                        np.abs(galah_param['feh_guess'] - obj_feh) < (FEH_SPAN / 2.))
+                                        np.abs(galah_param['Feh_cannon'] - obj_feh) < (FEH_SPAN / 2.))
 
             n_similar = np.sum(idx_select)
             print ' Number of objects: ' + str(n_similar)
@@ -166,7 +173,7 @@ for obj_teff in TEFF_GRID:
             #     n_used = np.sum(idx_select)
             #     print ' After SNR limit {0}'.format(n_used)
 
-            if n_similar < 5:
+            if n_similar < 10:
                 print '  Skipping this object'
                 # do not save any results
             else:
