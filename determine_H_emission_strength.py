@@ -205,7 +205,7 @@ def renorm_by_ref(s_obj, s_ref, wvl):
 
 
 def integrate_ew_spectra(spectra_data_orig, wvl_data_orig,
-                         res_scale=5.,
+                         res_scale=11.,
                          wvl_range=None, offset=0., abs=False,
                          reutrn_maxpeak_rv=False, wvl_rv_ref=None):
 
@@ -252,7 +252,7 @@ def integrate_ew_spectra(spectra_data_orig, wvl_data_orig,
 
         if reutrn_maxpeak_rv:
             c_vel = const.c.value  # in units of m/s
-            idx_max_inrange = np.argmax(medfilt(spectra_data[idx_spectra_integrate], kernel_size=int(3 * res_scale)))
+            idx_max_inrange = np.argmax(medfilt(spectra_data[idx_spectra_integrate], kernel_size=int(3. * res_scale)))
             wvl_peak = wvl_data[idx_spectra_integrate][idx_max_inrange]
             rv_peak = (wvl_peak - wvl_rv_ref) / wvl_rv_ref * c_vel
             return integral, ew_asym, rv_peak/1000.  # convert to km/s
@@ -581,7 +581,8 @@ def process_selected_id(s_id):
         axs[0, 1].set(xlim=(HALPHA_WVL - wvl_plot_range_s, HALPHA_WVL + wvl_plot_range_s), ylim=(-0.3, 0.8),
                       ylabel='Difference log(flux)', xlabel='Valid [NII] lines = {:.0f}'.format(nii_det))
         axs[0, 2].plot(wvl_val_ccd3, spectra_div_c3, color='black', linewidth=0.5)
-        axs[0, 2].set(xlim=(HALPHA_WVL - wvl_plot_range_z, HALPHA_WVL + wvl_plot_range_z), ylim=(0.7, 5),
+        ymlim_max = np.max(spectra_div_c3[np.abs(wvl_val_ccd3 - HALPHA_WVL) <= wvl_int_range]) * 1.05  # determine ylim
+        axs[0, 2].set(xlim=(HALPHA_WVL - wvl_plot_range_z, HALPHA_WVL + wvl_plot_range_z), ylim=(0.7, ymlim_max),
                       ylabel='Division flux')
         axs[0, 1].axhline(0., c='C0', alpha=0.75)
         axs[0, 2].axhline(1., c='C0', alpha=0.75)
@@ -629,7 +630,8 @@ def process_selected_id(s_id):
         axs[2, 1].set(xlim=(HBETA_WVL - wvl_plot_range_s, HBETA_WVL + wvl_plot_range_s), ylim=(-0.3, 2),
                       ylabel='Difference log(flux)', xlabel='Wavelength')
         axs[2, 2].plot(wvl_val_ccd1, spectra_div_c1, color='black', linewidth=0.5)
-        axs[2, 2].set(xlim=(HBETA_WVL - wvl_plot_range_z, HBETA_WVL + wvl_plot_range_z), ylim=(0.7, 5),
+        ymlim_max = np.max(spectra_div_c1[np.abs(wvl_val_ccd1 - HBETA_WVL) <= wvl_int_range]) * 1.05  # determine ylim
+        axs[2, 2].set(xlim=(HBETA_WVL - wvl_plot_range_z, HBETA_WVL + wvl_plot_range_z), ylim=(0.7, ymlim_max),
                       ylabel='Division flux', xlabel='Wavelength')
         axs[2, 1].axhline(0., c='C0', alpha=0.75)
         axs[2, 2].axhline(1., c='C0', alpha=0.75)

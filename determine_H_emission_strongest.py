@@ -1,7 +1,9 @@
 from os import system, chdir, path
 import numpy as np
 import matplotlib.pyplot as plt
-from astropy.table import Table, unique
+from astropy.table import Table, unique, join
+import astropy.coordinates as coord
+import astropy.units as un
 
 data_dir = '/shared/ebla/cotar/'
 results_data_dir = '/shared/data-camelot/cotar/H_band_strength_all_20190801/'
@@ -32,6 +34,7 @@ print 'Unique results:', len(res_hdet)
 
 galah_all = Table.read(data_dir + 'sobject_iraf_53_reduced_20190801.fits')
 oc_all = Table.read(data_dir + 'clusters/members_open_gaia_r2.fits')
+res_hdet = join(res_hdet, galah_all['sobject_id', 'ra', 'dec'], keys='sobject_id', join_type='left')
 
 
 print ' Flag stats:'
@@ -41,6 +44,12 @@ for ff in range(len(nf)):
 
 res_all = res_hdet[res_hdet['flag'] == 0]
 print 'Results unflagged:', len(res_hdet)
+
+# use flags to determine subsets
+idx_unf = res_hdet['flag'] == 0
+idx_bin = np.logical_or(res_hdet['SB2_c1'] >= 1, res_hdet['SB2_c3'] >= 1)
+idx_neb = (res_hdet['NII'] + res_hdet['SII']) >= 3
+idx_emi = np.logical_and(res_hdet['Ha_EW'] > 0.1, res_hdet['Ha_EW_abs'] > 0.3)  # TODO: better definition of EW thresholds
 
 
 def copy_ids_to_curr_map(sel_ids, cp_dir, suffix='', prefixes=None):
@@ -64,11 +73,45 @@ def copy_ids_to_curr_map(sel_ids, cp_dir, suffix='', prefixes=None):
     chdir('..')
 
 
+# ----------------------------------------
+# Get repeated observations that were at least once detected as in emission
+# - repeats could be from different programs than the GALAH -> (TESS, K2, clusters, pilot, Orion ...)
+# ----------------------------------------
+ra_dec_all = coord.ICRS(ra=res_hdet['ra']*un.deg,
+                        dec=res_hdet['dec']*un.deg)
+idx_detected = idx_emi * idx_unf * np.logical_not(idx_bin)
+res_hdet['repeated'] = 0
+id_rep = 1
+
+rep_dir = out_dir + 'repeats/'
+system('mkdir ' + rep_dir)
+chdir(rep_dir)
+
+for star in res_hdet:
+    ra_dec_star = coord.ICRS(ra=star['ra']*un.deg,
+                             dec=star['dec']*un.deg)
+    idx_close = ra_dec_all.separation(ra_dec_star) < 0.5 * un.arcsec
+    if np.sum(idx_close) > 1 and np.sum(res_hdet['repeated'][idx_close]) == 0:
+        # we have a repeated observation of a star that wan not yet detected and analysed
+        res_hdet['repeated'][idx_close] = id_rep
+        id_rep += 1
+
+        idx_detected_close = idx_close * idx_detected
+        if np.sum(idx_detected_close) >= 1:
+            print 'Repeated observations id', id_rep
+            # at least one of the repeats was detected as emission object
+            rep_subdir = rep_dir + '{:05.0f}'.format(id_rep) + '/'
+            copy_ids_to_curr_map(res_hdet['sobject_id'][idx_close], rep_subdir, suffix='', prefixes=None)
+
+chdir('..')
+
+raise SystemError
+
 n_random_det = 350
 # ----------------------------------------
 # Totally random subset of results - easy way to browse for strange results
 # ----------------------------------------
-print 'N ofor random selection:', len(res_hdet)
+print 'N for random selection:', len(res_hdet)
 idx_sel = np.int64(np.random.uniform(0, len(res_hdet), n_random_det))
 copy_ids_to_curr_map(res_hdet['sobject_id'][idx_sel], out_dir + 'random/')
 
