@@ -3,7 +3,7 @@ mpl.use('Agg')
 mpl.rcParams['font.size'] = 14
 
 from os import chdir
-from imp import load_source
+from importlib.machinery import SourceFileLoader
 from functools import partial
 import numpy as np
 import matplotlib.pyplot as plt
@@ -16,10 +16,10 @@ from sys import argv
 from getopt import getopt
 from copy import deepcopy
 
-load_source('helper_functions', '../Carbon-Spectra/helper_functions.py')
+SourceFileLoader('helper_functions','../Carbon-Spectra/helper_functions.py').load_module()
 from helper_functions import move_to_dir, spectra_normalize
-load_source('s_collection', '../Carbon-Spectra/spectra_collection_functions.py')
-from s_collection import *
+SourceFileLoader('s_collection', '../Carbon-Spectra/spectra_collection_functions.py').load_module()
+from s_collection import CollectionParameters, read_pkl_spectra, save_pkl_spectra
 
 from multiprocessing import Pool
 
@@ -30,7 +30,7 @@ if len(argv) > 1:
     # parse input options
     opts, args = getopt(argv[1:], '', ['test=', 'verbose=', 'plot='])
     # set parameters, depending on user inputs
-    print opts
+    print(opts)
     for o, a in opts:
         if o == '--test':
             TEST_RUN = int(a)
@@ -54,24 +54,27 @@ def make_mask(values, ranges,
 # --------------------------------------------------------
 # ---------------- Read data -----------------------------
 # --------------------------------------------------------
-print 'Reading GALAH parameters'
+print('Reading GALAH parameters')
 date_string = '20190801'
 remove_spikes = False
 
-n_multi = 50
+n_multi = 40
 galah_data_dir = '/shared/ebla/cotar/'
 out_dir = '/shared/data-camelot/cotar/'
 
+# additional data and products about observed spectra
 general_data = Table.read(galah_data_dir + 'sobject_iraf_53_reduced_'+date_string+'.fits')
 params_data = Table.read(galah_data_dir + 'GALAH_iDR3_main_alpha_190529.fits')
 general_data = join(general_data, params_data['sobject_id', 'teff', 'fe_h', 'logg', 'flag_sp'], join_type='left')
+# auxiliary data-sets
+sky_lineslist = Table.read(galah_data_dir + 'sky_emission_linelist.csv', format='ascii.csv')
 
 spectra_ccd1_pkl = 'galah_dr53_ccd1_4710_4910_wvlstep_0.040_ext4_'+date_string+'.pkl'
-median_spectra_ccd1_pkl = 'galah_dr53_ccd1_4710_4910_wvlstep_0.040_ext4_'+date_string+'_median_350_snr_15_teff_150_logg_0.20_feh_0.20_vbroad_10_hbeta.pkl'
-# median_spectra_ccd1_pkl = 'galah_dr53_ccd1_4710_4910_wvlstep_0.040_ext4_'+date_string+'_median_500_snr_15_teff_300_logg_0.30_feh_0.30_vbroad_10_hbeta.pkl'
+# median_spectra_ccd1_pkl = 'galah_dr53_ccd1_4710_4910_wvlstep_0.040_ext4_'+date_string+'_median_350_snr_15_teff_150_logg_0.20_feh_0.20_vbroad_10_hbeta.pkl'
+median_spectra_ccd1_pkl = 'galah_dr53_ccd1_4710_4910_wvlstep_0.040_ext4_'+date_string+'_median_500_snr_15_teff_300_logg_0.30_feh_0.30_vbroad_10_hbeta.pkl'
 spectra_ccd3_pkl = 'galah_dr53_ccd3_6475_6745_wvlstep_0.060_ext4_'+date_string+'.pkl'
-median_spectra_ccd3_pkl = 'galah_dr53_ccd3_6475_6745_wvlstep_0.060_ext4_'+date_string+'_median_350_snr_25_teff_150_logg_0.20_feh_0.20_vbroad_10_halpha.pkl'
-# median_spectra_ccd3_pkl = 'galah_dr53_ccd3_6475_6745_wvlstep_0.060_ext4_'+date_string+'_median_500_snr_25_teff_300_logg_0.30_feh_0.30_vbroad_10_halpha.pkl'
+# median_spectra_ccd3_pkl = 'galah_dr53_ccd3_6475_6745_wvlstep_0.060_ext4_'+date_string+'_median_350_snr_25_teff_150_logg_0.20_feh_0.20_vbroad_10_halpha.pkl'
+median_spectra_ccd3_pkl = 'galah_dr53_ccd3_6475_6745_wvlstep_0.060_ext4_'+date_string+'_median_500_snr_25_teff_300_logg_0.30_feh_0.30_vbroad_10_halpha.pkl'
 
 # parse interpolation and averaging settings from filename
 ccd1_wvl = CollectionParameters(spectra_ccd1_pkl).get_wvl_values()
@@ -84,6 +87,11 @@ wvl_plot_range_z = 5
 wvl_int_range = 3.5
 HBETA_WVL = 4861.36
 HALPHA_WVL = 6562.81
+
+# remove weak and out-of-bounds sky emission lines
+sky_lineslist = sky_lineslist[sky_lineslist['Flux'] >= 1.]
+sky_lineslist = sky_lineslist[np.abs(sky_lineslist['Ang'] - HALPHA_WVL) <= wvl_read_range]
+print('Remaining set of sky lines:', len(sky_lineslist))
 
 # exact values of lines taken from http://newt.phys.unsw.edu.au/~jkw/alpha/useful_lines.pdf
 SII_bands = [6716.47, 6730.85]
@@ -109,30 +117,30 @@ idx_ccf_ccd1 = make_mask(wvl_val_ccd1, [[HBETA_WVL-2.*wvl_plot_range_z, HBETA_WV
                          drange=0., invert=True)
 idx_ccf_ccd3 = make_mask(wvl_val_ccd3, [[HALPHA_WVL-2.*wvl_plot_range_z, HALPHA_WVL+2.*wvl_plot_range_z]],
                          drange=0., invert=True)
-print 'Non masked pixels used in CCF:', np.sum(idx_ccf_ccd1), np.sum(idx_ccf_ccd3)
+print('Non masked pixels used in CCF:', np.sum(idx_ccf_ccd1), np.sum(idx_ccf_ccd3))
 
 # read limited number of columns instead of full spectral dataset
-print 'Reading resampled/interpolated GALAH spectra'
+print('Reading resampled/interpolated GALAH spectra')
 spectra_ccd1 = read_pkl_spectra(out_dir + spectra_ccd1_pkl, read_cols=idx_read_ccd1)
-print ' --'
+print(' --')
 ccd3_all = read_pkl_spectra(out_dir + spectra_ccd3_pkl)
-print ' --'
+print(' --')
 spectra_ccd3 = ccd3_all[:, idx_read_ccd3]
 spectra_ccd3_SII = ccd3_all[:, idx_read_ccd3_SII]
 ccd3_all = None
-print 'Reading merged median GALAH spectra'
+print('Reading merged median GALAH spectra')
 spectra_median_ccd1 = read_pkl_spectra(out_dir + median_spectra_ccd1_pkl, read_cols=idx_read_ccd1)
-print ' --'
+print(' --')
 ccd3_median_all = read_pkl_spectra(out_dir + median_spectra_ccd3_pkl)
-print ' --'
+print(' --')
 spectra_median_ccd3 = ccd3_median_all[:, idx_read_ccd3]
 spectra_median_ccd3_SII = ccd3_median_all[:, idx_read_ccd3_SII]
 ccd3_median_all = None
 # remove full spectra arrays
-print ' Done'
+print(' Done')
 
 # # TEMP: save/store data pkl subsets to output dir
-# print 'Saving subsets'
+# print('Saving subsets'
 # save_pkl_spectra(spectra_ccd3, out_dir + 'Emissions_ccd3_1.pkl')
 # save_pkl_spectra(spectra_ccd1, out_dir + 'Emissions_ccd1_1.pkl')
 # save_pkl_spectra(spectra_ccd3_SII, out_dir + 'Emissions_ccd3_2.pkl')
@@ -140,15 +148,15 @@ print ' Done'
 # save_pkl_spectra(spectra_median_ccd1, out_dir + 'Emissions_ccd1_me_1.pkl')
 # save_pkl_spectra(spectra_median_ccd3_SII, out_dir + 'Emissions_ccd3_me_2.pkl')
 #
-# print 'Reading saved subsets'
+# print('Reading saved subsets'
 # spectra_ccd3 = read_pkl_spectra(out_dir + 'Emissions_ccd3_1.pkl')
 # spectra_ccd1 = read_pkl_spectra(out_dir + 'Emissions_ccd1_1.pkl')
 # spectra_ccd3_SII = read_pkl_spectra(out_dir + 'Emissions_ccd3_2.pkl')
-# print ' --'
+# print(' --'
 # spectra_median_ccd3 = read_pkl_spectra(out_dir + 'Emissions_ccd3_me_1.pkl')
 # spectra_median_ccd1 = read_pkl_spectra(out_dir + 'Emissions_ccd1_me_1.pkl')
 # spectra_median_ccd3_SII = read_pkl_spectra(out_dir + 'Emissions_ccd3_me_2.pkl')
-# print ' --'
+# print(' --'
 
 # select initial data by parameters
 idx_object_ok = general_data['sobject_id'] > 0  # can filter by date even later
@@ -161,16 +169,18 @@ idx_object_ok = np.logical_and(idx_object_ok, np.bitwise_and(general_data['red_f
 # determine object sobject_id numbers
 sobject_ids = general_data[idx_object_ok]['sobject_id']
 
-move_to_dir(out_dir+'H_band_strength_all_'+date_string)
-# move_to_dir(out_dir+'H_band_strength_complete_'+date_string+'_BroadRange_190916')
+# move_to_dir(out_dir+'H_band_strength_all_'+date_string)
+move_to_dir(out_dir+'H_band_strength_complete_'+date_string+'_BroadRange_191005')
 
 # binary flag describing processing step where something went wrong or data are missing:
-# 100000 or 32 = Missing median spectrum in ccd3 (red spectral range around H-alpha)
-# 010000 or 16 = Missing median spectrum in ccd1 (blue spectral range around H-beta)
-# 001000 or  8 = Large difference between median and observed spectrum in ccd3 - median squared error
-# 000100 or  4 = Large difference between median and observed spectrum in ccd1
-# 000010 or  2 = Wavelength solution (or RV) might be wrong in ccd3 - CCF is not centered at RV = 0
-# 000001 or  1 = Wavelength solution (or RV) might be wrong in ccd1
+# 10000000 or 128 = Missing median spectrum in ccd3 (red spectral range around H-alpha)
+# 01000000 or  64 = Missing median spectrum in ccd1 (blue spectral range around H-beta)
+# 00100000 or  32 = Large difference between median and observed spectrum in ccd3 - median squared error
+# 00010000 or  16 = Large difference between median and observed spectrum in ccd1
+# 00001000 or   8 = Spectrum most likely shows duplicated spectral absorption lines
+# 00000100 or   4 = Strong contamination with sky emission features in ccd3 (one of them falls inside Ha region)
+# 00000010 or   2 = Wavelength solution (or RV) might be wrong in ccd3 - CCF is not centered at RV = 0
+# 00000001 or   1 = Wavelength solution (or RV) might be wrong in ccd1
 results = Table(names=('sobject_id', 'Ha_EW', 'Hb_EW', 'Ha_EW_abs', 'Hb_EW_abs', 'rv_Ha_peak', 'rv_Hb_peak',
                        'Ha_EW_asym', 'Hb_EW_asym', 'SB2_c3', 'SB2_c1',
                        'NII', 'SII', 'NII_EW', 'SII_EW', 'rv_NII', 'rv_SII', 'flag'),
@@ -182,7 +192,7 @@ n_cols_out = len(results.columns)
 # --------------------------------------------------------
 # ---------------- Functions -----------------------------
 # --------------------------------------------------------
-print 'Number of spectra that will be evaluated:', len(sobject_ids)
+print('Number of spectra that will be evaluated:', len(sobject_ids))
 
 
 def fill_nans(s_obj):
@@ -334,11 +344,11 @@ def fit_emission_lines(s_obj, w_obj, e_lines,
     rv_fitted = np.mean((wvl_peaks - np.array(e_lines)) / np.array(e_lines) * c_vel)
 
     if verbose:
-        print 'Emission lines fit results, is detected? =', line_det
-        print 'RV init peaks:', rvs_peak
-        print 'Peaks:', wvl_peaks, np.array(wvl_peaks) - np.array(e_lines)
-        print 'Amps:', g_amps
-        print 'Std:', g_std
+        print('Emission lines fit results, is detected? =', line_det)
+        print('RV init peaks:', rvs_peak)
+        print('Peaks:', wvl_peaks, np.array(wvl_peaks) - np.array(e_lines))
+        print('Amps:', g_amps)
+        print('Std:', g_std)
 
     # check if fitted curve even exists -> test if fit did converge
     # TODO: find possible better way to check this
@@ -346,6 +356,11 @@ def fit_emission_lines(s_obj, w_obj, e_lines,
         # fit did not converge properly
         line_det = 0
         converged = False
+
+    e_fit = None
+    fit_res = None
+    del e_fit
+    del fit_res
 
     # return RV converted to km/s
     return line_det, wvl_peaks, rv_fitted/1000., fitted_curve, converged
@@ -443,27 +458,58 @@ def sb2_ccf(s_obj, s_ref,
         is_cent = False
 
     if verbose:
-        print 'SB2 fit results'
-        print is_sb2, is_cent, ccf_peak
-        print 'CCF extrema:', ccf_extrema
-        print 'C poly:', [fit_res[0].c0.value, fit_res[0].c1.value]#, fit_res[0].c2.value]
-        print 'Peaks:', ccf_peaks
-        print 'Amps:', g_amps
-        print 'Std:', g_std
+        print('SB2 fit results')
+        print(is_sb2, is_cent, ccf_peak)
+        print('CCF extrema:', ccf_extrema)
+        print('C poly:', [fit_res[0].c0.value, fit_res[0].c1.value])#, fit_res[0].c2.value]
+        print('Peaks:', ccf_peaks)
+        print('Amps:', g_amps)
+        print('Std:', g_std)
 
-    return is_sb2, is_cent, [ccf_x, ccf_y, fit_res(ccf_x), ccf_peak, ccf_peaks]
+    fit_res_y = fit_res(ccf_x)
+    e_fit = None
+    fit_res = None
+    del e_fit
+    del fit_res
+
+    return is_sb2, is_cent, [ccf_x, ccf_y, fit_res_y, ccf_peak, ccf_peaks]
+
+
+def determine_sky_emission_strength(s_obj, w_obj, linelist,
+                                    rv=0, rv_bary=0.,
+                                    e_thr=0.15, d_wvl=0.2):
+    # shift emission lines from the observed to the stellar reference frame
+    c_vel = const.c.value / 1000.  # value of light speed in km/s
+    rv_shift = rv - rv_bary
+    linelist_star_frame = linelist * (1 - rv_shift / c_vel)
+
+    # check lines one by one - simple peak thresholding, nothing fancy
+    linelist_present = []
+    for sky_e in linelist_star_frame:
+        # specify wlv neighbourhood of the observed sky emission line
+        idx_w = np.abs(w_obj - sky_e) <= d_wvl
+        max_amp = np.nanmax(s_obj[idx_w])
+        if max_amp > e_thr:
+            linelist_present.append(sky_e)
+
+    # return lines that are possiblly present in the spectrum difference
+    return linelist_star_frame, linelist_present
 
 
 # --------------------------------------------------------
 # ---------------- Main analysis procedure ---------------
 # --------------------------------------------------------
 def process_selected_id(s_id):
-    print '\nWorking on object '+str(s_id)
+    print('\nWorking on object '+str(s_id))
     # define flag parameter that will describe processing problem(s) in resulting table
     proc_flag = 0
 
     # get parameters of the observed object
     idx_object = np.where(general_data['sobject_id'] == s_id)[0]
+    if len(idx_object) == 0:
+        print('Sobject', s_id, 'not in the dataset.')
+        return []
+
     object_parameters = general_data[idx_object][0]
 
     # get both spectra of the object and it's reduced reference median comparison spectra
@@ -476,9 +522,9 @@ def process_selected_id(s_id):
 
     # check validity of reference spectra
     if not np.isfinite(spectra_median_c3).any():
-        proc_flag += 0b100000
+        proc_flag += 0b10000000
     if not np.isfinite(spectra_median_c1).any():
-        proc_flag += 0b010000
+        proc_flag += 0b01000000
 
     spectra_object_c1 = renorm_by_ref(spectra_object_c1, spectra_median_c1, wvl_val_ccd1)
     spectra_object_c3 = renorm_by_ref(spectra_object_c3, spectra_median_c3, wvl_val_ccd3)
@@ -492,9 +538,9 @@ def process_selected_id(s_id):
     # flag baddly correlated spectra and median spectra
     distance_thr = 0.004
     if rms_c3 >= 0.001:
-        proc_flag += 0b001000
+        proc_flag += 0b00100000
     if rms_c1 >= 0.008:
-        proc_flag += 0b000100
+        proc_flag += 0b00010000
 
     # correct part of the spectrum that might not be filled with valid data
     spectra_object_c3 = fill_nans(spectra_object_c3)
@@ -520,6 +566,15 @@ def process_selected_id(s_id):
     # - emission like ccd spikes
     # - discontinuities in observed spectra
 
+    e_sky_thr = 0.15
+    sky_all, sky_present = determine_sky_emission_strength(spectra_dif_c3, wvl_val_ccd3, sky_lineslist['Ang'],
+                                                           rv=object_parameters['rv_guess_shift'],
+                                                           rv_bary=object_parameters['v_bary'], e_thr=e_sky_thr)
+    # set sky emission warning quality flag if many sky line were detected to be present in the spectrum difference
+    if len(sky_present) >= 3:
+        proc_flag += 0b00000100
+
+    # compute cross-correlation function for both bands to identify possible SB2 object and wrong wavelength calibration
     sb2_c3, wvl_c3, ccf_res_c3 = sb2_ccf(spectra_object_c3[idx_ccf_ccd3], spectra_median_c3[idx_ccf_ccd3],
                                          a_thr=0.45, s_thr_l=3.0, s_thr_u=20., max_peak_offset=70,
                                          verbose=VERBOSE)
@@ -527,11 +582,15 @@ def process_selected_id(s_id):
                                          a_thr=0.45, s_thr_l=3.0, s_thr_u=20.,  max_peak_offset=75,
                                          verbose=VERBOSE)
 
-    # add validity of wavelength sollution to the processing flag
+    # very high chance of being a SB2 binary star -> raise processing quality flag
+    if sb2_c1 and sb2_c3:
+        proc_flag += 0b00001000
+
+    # add validity of wavelength solution to the processing flag
     if not wvl_c3:
-        proc_flag += 0b000010
+        proc_flag += 0b00000010
     if not wvl_c1:
-        proc_flag += 0b000001
+        proc_flag += 0b00000001
 
     nii_det, nii_peaks, nii_rv, nii_fit, nii_con = fit_emission_lines(spectra_dif_c3, wvl_val_ccd3, NII_bands, verbose=VERBOSE)
     sii_det, sii_peaks, sii_rv, sii_fit, sii_con = fit_emission_lines(spectra_dif_c3_SII, wvl_val_ccd3_SII, SII_bands, verbose=VERBOSE)
@@ -565,7 +624,7 @@ def process_selected_id(s_id):
     # ---------------- Plot results --------------------------
     # --------------------------------------------------------
     suffix = ''  #
-    # print ' Plotting results'
+    # print(' Plotting results'
 
     if PLOT_FIG:
         fig, axs = plt.subplots(4, 3, figsize=(16, 12))
@@ -668,15 +727,23 @@ def process_selected_id(s_id):
             axs[3, 1].axvline(c_p, color='black', alpha=0.8, ls='--')
 
         plot_w = 125
-        idx_m = np.logical_and(ccf_res_c3[0] >= -plot_w, ccf_res_c3[0] <= plot_w)
         if np.isfinite(ccf_res_c3[1]).all():
             axs[3, 0].set(xlim=(-plot_w, plot_w), xlabel='Pixel shifts - is SB2? = '+str(int(sb2_c3)),
-                          # ylim=(np.min(ccf_res_c3[1][idx_m]), np.max(ccf_res_c3[1]) * 1.05))
                           ylim=(-0.2, 1.6))
         if np.isfinite(ccf_res_c1[1]).all():
             axs[3, 1].set(xlim=(-plot_w, plot_w), xlabel='Pixel shifts - is SB2? = '+str(int(sb2_c1)),
-                          # ylim=(np.min(ccf_res_c1[1][idx_m]), np.max(ccf_res_c1[1]) * 1.05))
                           ylim=(-0.2, 1.6))
+
+        # visualize position and detected sky lines
+        axs[3, 2].plot(wvl_val_ccd3, spectra_dif_c3, color='black', linewidth=0.5)
+        axs[3, 2].set(xlim=(HALPHA_WVL - wvl_plot_range_s, HALPHA_WVL + wvl_plot_range_s), ylim=(-0.15, 0.4),
+                      ylabel='Difference log(flux)', xlabel='Strongest sky emissions detected = {:.0f}'.format(len(sky_present)))
+        # add thresholding value for detection of emission peaks
+        axs[3, 2].axhline(e_sky_thr, color='black', alpha=0.6, ls='--')
+        for e_sky in sky_all:  # visualize all sky lines and their transformed wvl position
+            axs[3, 2].axvline(e_sky, color='C2', alpha=0.8, ls='--')
+        for e_sky in sky_present:  # highlight only detected sky lines
+            axs[3, 2].axvline(e_sky, color='C3', alpha=0.8, ls='--')
 
         # add grid lines to every plot available
         for ip in range(3):
@@ -692,11 +759,16 @@ def process_selected_id(s_id):
             plt.savefig('tests/'+str(s_id)+suffix+'.png', dpi=200)
         plt.close()
 
+        fig = None
+        axs = None
+        del fig
+        del axs
+
     return output_array
 
 
 # create all possible output subdirectories
-print 'Creating sub-folders in advance'
+print('Creating sub-folders in advance')
 sobject_dates = np.unique(np.int32(sobject_ids/10e10))
 for s_date in sobject_dates:
     move_to_dir(str(s_date))
@@ -740,20 +812,30 @@ if TEST_RUN:
                    150829004301276, 160524006601134, 140413003201189, 160112001601130, 160527002101081, 170416005801142,
                    170105003101389, 170106002601378, 170106004101089, 170106004601001, 170106004601083, 170107002601006,
                    170711003501086, 180126002601034, 171208002601103, 180131004101338, 180103001601060, 171003002601045,
-                   170905002101249, 170805004601106, 170725005101394, 170603005601057, 170404003101254, 160111001601202]
+                   170905002101249, 170805004601106, 170725005101394, 170603005601057, 170404003101254, 160111001601202,
+                   140112002301115, 140309003601373, 150607004101179, 140600921011178, 140609003101388, 150428001601398,
+                   140309002101378, 140305001301198, 140113002901294, 140309003601367, 140308001401205, 140309002601352,
+                   140308003801011, 140308003801056, 140309004101056, 140301004701056, 140308003801394, 140309003601014]
     for so_id in np.unique(sobject_ids):
         so_id_results = process_selected_id(so_id)
-        results.add_row(so_id_results)
+        if len(so_id_results) > 0:
+            results.add_row(so_id_results)
 else:
-    # multiprocessing
-    pool = Pool(processes=n_multi)
-    process_return = np.array(pool.map(process_selected_id, sobject_ids))
-    pool.close()
-    pool = None
+    # multiprocessing - run in multiple subsets as this might reduce memory usage and clear saved astropy.fitting models
+    n_subsets = 100
+    sobj_ranges = np.int32(np.linspace(0, len(sobject_ids), n_subsets+1))
+    for i_subset in range(n_subsets):
+        pool = Pool(processes=n_multi)
+        subset_sobject_ids = sobject_ids[sobj_ranges[i_subset]: sobj_ranges[i_subset+1]]
+        process_return = np.array(pool.map(process_selected_id, subset_sobject_ids))
+        pool.close()
+        pool = None
 
-    # insert individual object results into resulting ta
-    print 'Saving results to a table'
-    for so_id_results in process_return:
-        results.add_row(so_id_results)
+        # insert individual object results into resulting table
+        for so_id_results in process_return:
+            if len(so_id_results) > 0:
+                results.add_row(so_id_results)
+
 # save results
+print('Saving results to a table')
 results.write('results_H_lines' + out_suffix + '.fits', overwrite=True)

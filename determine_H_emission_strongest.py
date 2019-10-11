@@ -9,11 +9,11 @@ data_dir = '/shared/ebla/cotar/'
 results_data_dir = '/shared/data-camelot/cotar/H_band_strength_all_20190801/'
 out_dir = results_data_dir
 
-print 'Reading results'
+print('Reading results')
 # # TEMP FIX:
 # csv_temp = open(results_data_dir + 'results_H_lines_temp.csv', 'w')
 # with open(results_data_dir + 'results_H_lines.csv', 'r') as csv_orig:
-#     print 'Skipping bad csv lines'
+#     print('Skipping bad csv lines'
 #     for i_l, csv_line in enumerate(csv_orig):
 #         if 110 < len(csv_line) < 300:
 #             line_split = csv_line.split(',')
@@ -24,41 +24,46 @@ print 'Reading results'
 # res_hdet = Table.read(results_data_dir + 'results_H_lines.csv', format='ascii.csv')
 res_hdet = Table.read(results_data_dir + 'results_H_lines.fits')
 res_hdet = res_hdet[np.argsort(res_hdet['sobject_id'])]
-print res_hdet
-print 'Results so far:', len(res_hdet)
+print(res_hdet)
+print('Results so far:', len(res_hdet))
 # s_u, c_u = np.unique(res_all['sobject_id'], return_counts=True)
 # for get_s_u in s_u[c_u >= 2][:10]:
-#     print res_all[res_all['sobject_id'] == get_s_u]
+#     print(res_all[res_all['sobject_id'] == get_s_u]
 res_hdet = unique(res_hdet, keys='sobject_id', keep='first')
-print 'Unique results:', len(res_hdet)
+print('Unique results:', len(res_hdet))
 
+binary_candidates_gregor = Table.read(results_data_dir + 'galah_binary_all_candidates_radec.csv', format='ascii.csv')
 galah_all = Table.read(data_dir + 'sobject_iraf_53_reduced_20190801.fits')
 oc_all = Table.read(data_dir + 'clusters/members_open_gaia_r2.fits')
 res_hdet = join(res_hdet, galah_all['sobject_id', 'ra', 'dec'], keys='sobject_id', join_type='left')
 
-
-print ' Flag stats:'
+print(' Flag stats:')
 vf, nf = np.unique(res_hdet['flag'], return_counts=True)
 for ff in range(len(nf)):
-    print '  {:.0f} => {:.0f}'.format(vf[ff], nf[ff])
+    print('  {:.0f} => {:.0f}'.format(vf[ff], nf[ff]))
 
 res_all = res_hdet[res_hdet['flag'] == 0]
-print 'Results unflagged:', len(res_hdet)
+print('Results unflagged:', len(res_hdet))
 
 # use flags to determine subsets
 idx_unf = res_hdet['flag'] == 0
 idx_bin = np.logical_or(res_hdet['SB2_c1'] >= 1, res_hdet['SB2_c3'] >= 1)
+idx_bin_conf = np.logical_and(res_hdet['SB2_c1'] >= 1, res_hdet['SB2_c3'] >= 1)
+idx_bin_conf = np.logical_and(idx_bin_conf, res_hdet['flag'] <= 3)
 idx_neb = (res_hdet['NII'] + res_hdet['SII']) >= 3
-idx_emi = np.logical_and(res_hdet['Ha_EW'] > 0.1, res_hdet['Ha_EW_abs'] > 0.3)  # TODO: better definition of EW thresholds
+idx_emi = np.logical_and(res_hdet['Ha_EW'] > 0.35, res_hdet['Ha_EW_abs'] > 0.45)  # TODO: better definition of EW thresholds
 
 
+# ----------------------------------------
+# ------------ FUNCTIONS -----------------
+# ----------------------------------------
 def copy_ids_to_curr_map(sel_ids, cp_dir, suffix='', prefixes=None):
     system('mkdir ' + cp_dir)
     chdir(cp_dir)
     for i_s, star_id in enumerate(sel_ids):
         s_date = np.int32(star_id / 10e10)
         sobj = str(star_id)
-        # print sobj
+        # print(sobj
 
         source = results_data_dir + str(s_date) + '/' + str(sobj) + suffix + '.png'
         prefix = ''
@@ -74,13 +79,31 @@ def copy_ids_to_curr_map(sel_ids, cp_dir, suffix='', prefixes=None):
 
 
 # ----------------------------------------
+# Compare our binaries with possible binaries detected and analysed by Traven+ 2020
+# ----------------------------------------
+# binary candidates statistics
+print("Binary statistics - comparison with Gregor's paper:")
+print('Stats: ', len(binary_candidates_gregor), np.sum(idx_bin_conf))
+print('Union:', np.sum(np.in1d(binary_candidates_gregor['sobject_id'], res_hdet['sobject_id'][idx_bin_conf])))
+print('Unique:', np.sum(np.in1d(binary_candidates_gregor['sobject_id'], res_hdet['sobject_id'][idx_bin_conf], invert=True)))
+idx_show_ids = np.in1d(res_hdet['sobject_id'][idx_bin_conf], binary_candidates_gregor['sobject_id'], invert=True)
+print('Unique:', np.sum(idx_show_ids))
+# print(res_hdet['sobject_id'][idx_bin_conf][idx_show_ids])
+
+# # copy objects that were not detected by the mention paper into a separate folder where they can be investigated
+# copy_ids_to_curr_map(res_hdet['sobject_id'][idx_bin_conf][idx_show_ids],
+#                      out_dir + 'SB2_notin_Gregor/',
+#                      suffix='', prefixes=None)
+
+# ----------------------------------------
 # Get repeated observations that were at least once detected as in emission
-# - repeats could be from different programs than the GALAH -> (TESS, K2, clusters, pilot, Orion ...)
+# - repeats could be from different programs than the GALAH -> (TESS, K2, clusters, pilot, Orion ...), therefore
+#   repeats detection is based on logged coordinates of the spectrum
 # ----------------------------------------
 ra_dec_all = coord.ICRS(ra=res_hdet['ra']*un.deg,
                         dec=res_hdet['dec']*un.deg)
 idx_detected = idx_emi * idx_unf * np.logical_not(idx_bin)
-res_hdet['repeated'] = 0
+res_hdet['repeated'] = np.int32(0)
 id_rep = 1
 
 rep_dir = out_dir + 'repeats/'
@@ -98,7 +121,7 @@ for star in res_hdet:
 
         idx_detected_close = idx_close * idx_detected
         if np.sum(idx_detected_close) >= 1:
-            print 'Repeated observations id', id_rep
+            print('Repeated observations id', id_rep)
             # at least one of the repeats was detected as emission object
             rep_subdir = rep_dir + '{:05.0f}'.format(id_rep) + '/'
             copy_ids_to_curr_map(res_hdet['sobject_id'][idx_close], rep_subdir, suffix='', prefixes=None)
@@ -111,7 +134,7 @@ n_random_det = 350
 # ----------------------------------------
 # Totally random subset of results - easy way to browse for strange results
 # ----------------------------------------
-print 'N for random selection:', len(res_hdet)
+print('N for random selection:', len(res_hdet))
 idx_sel = np.int64(np.random.uniform(0, len(res_hdet), n_random_det))
 copy_ids_to_curr_map(res_hdet['sobject_id'][idx_sel], out_dir + 'random/')
 
@@ -120,7 +143,7 @@ copy_ids_to_curr_map(res_hdet['sobject_id'][idx_sel], out_dir + 'random/')
 # ----------------------------------------
 res = res_hdet[np.logical_or(np.bitwise_and(res_hdet['flag'], 32),
                              np.bitwise_and(res_hdet['flag'], 16))]
-print 'N no reference:', len(res)
+print('N no reference:', len(res))
 idx_sel = np.int64(np.random.uniform(0, len(res), n_random_det))
 copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'flag_noref/')
 
@@ -129,7 +152,7 @@ copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'flag_noref/')
 # ----------------------------------------
 res = res_hdet[np.logical_or(np.bitwise_and(res_hdet['flag'], 8),
                              np.bitwise_and(res_hdet['flag'], 4))]
-print 'N bad reference:', len(res)
+print('N bad reference:', len(res))
 idx_sel = np.int64(np.random.uniform(0, len(res), n_random_det))
 copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'flag_badref/')
 
@@ -140,7 +163,7 @@ res = res_hdet[np.logical_not(np.logical_or(np.bitwise_and(res_hdet['flag'], 32)
                                             np.bitwise_and(res_hdet['flag'], 16)))]
 res = res[np.logical_or(np.bitwise_and(res['flag'], 2),
                         np.bitwise_and(res['flag'], 1))]
-print 'N bad wvl reduction:', len(res)
+print('N bad wvl reduction:', len(res))
 idx_sel = np.int64(np.random.uniform(0, len(res), n_random_det))
 copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'flag_wvlred/')
 
@@ -148,7 +171,7 @@ copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'flag_wvlred/')
 # sample of nebular emissions
 # ----------------------------------------
 res = res_all[(res_all['NII'] + res_all['SII']) >= 3]
-print 'N nebulous:', len(res)
+print('N nebulous:', len(res))
 idx_sel = np.int64(np.random.uniform(0, len(res), n_random_det))
 copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'nebular/')
 
@@ -173,7 +196,7 @@ if res_all['SB2_c1'].dtype == np.dtype('S5'):
 else:
     res = res_all[np.logical_or(res_all['SB2_c1'] >= 1,
                                 res_all['SB2_c3'] >= 1)]
-print 'N SB2:', len(res)
+print('N SB2:', len(res))
 idx_sel = np.int64(np.random.uniform(0, len(res), n_random_det))
 copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'SB2/')
 
@@ -183,7 +206,7 @@ copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'SB2/')
 idx_asmy = np.logical_and(res_all['Ha_EW_abs'] > 0.4, res_all['Ha_EW'] > 0.1)
 idx_asmy = np.logical_and(idx_asmy, np.sqrt(res_all['Ha_EW_asym']**2 + res_all['Hb_EW_asym']**2) > 0.2)
 res = res_all[idx_asmy]
-print 'N asymmetric:', len(res)
+print('N asymmetric:', len(res))
 idx_sel = np.int64(np.random.uniform(0, len(res), n_random_det))
 copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'asym/')
 
@@ -192,7 +215,7 @@ n_best = 250
 # sort by strongest H-alpha emission spectrum
 # ----------------------------------------
 sort_by = 'Ha_EW'
-print 'N '+sort_by+':', n_best
+print('N '+sort_by+':', n_best)
 res = res_all[np.isfinite(res_all[sort_by])]
 idx_strong = np.argsort(res[sort_by])[::-1]
 copy_ids_to_curr_map(res['sobject_id'][idx_strong[:n_best]], out_dir + 'strongest/',
@@ -225,7 +248,7 @@ res = None
 # sort by strongest absolute H-alpha emission spectrum
 # ----------------------------------------
 sort_by = 'Ha_EW_abs'
-print 'N '+sort_by+':', n_best
+print('N '+sort_by+':', n_best)
 res = res_all[np.logical_and(np.isfinite(res_all[sort_by]),
                              res_all['Ha_EW'] > 0.)]
 idx_strong = np.argsort(res[sort_by])[::-1]
