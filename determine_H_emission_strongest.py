@@ -1,29 +1,27 @@
 from os import system, chdir, path
 import numpy as np
 import matplotlib.pyplot as plt
-from astropy.table import Table, unique, join
+import matplotlib.patches as mpatches
+from matplotlib.collections import PatchCollection
+from astropy.table import Table, unique, join, vstack
 import astropy.coordinates as coord
 import astropy.units as un
 
+plt.rcParams['font.size'] = 15
+ANALYSE_REPEATS = True
+MAKE_PLOTS = True
+
 data_dir = '/shared/ebla/cotar/'
-results_data_dir = '/shared/data-camelot/cotar/H_band_strength_all_20190801/'
+# results_data_dir = '/shared/data-camelot/cotar/H_band_strength_all_20190801/'
+results_data_dir = '/shared/data-camelot/cotar/H_band_strength_complete_20190801_BroadRange_191005/'
 out_dir = results_data_dir
 
 print('Reading results')
-# # TEMP FIX:
-# csv_temp = open(results_data_dir + 'results_H_lines_temp.csv', 'w')
-# with open(results_data_dir + 'results_H_lines.csv', 'r') as csv_orig:
-#     print('Skipping bad csv lines'
-#     for i_l, csv_line in enumerate(csv_orig):
-#         if 110 < len(csv_line) < 300:
-#             line_split = csv_line.split(',')
-#             if (len([0]) == 15 or i_l <= 0) and len(line_split) == 16:
-#                 csv_temp.write(csv_line)
-# csv_temp.close()
-# Read corrected csv with less lines than optimal
-# res_hdet = Table.read(results_data_dir + 'results_H_lines.csv', format='ascii.csv')
-res_hdet = Table.read(results_data_dir + 'results_H_lines.fits')
+res_hdet = vstack((Table.read(results_data_dir + 'results_H_lines_1.fits'),
+                   Table.read(results_data_dir + 'results_H_lines_2.fits')))
 res_hdet = res_hdet[np.argsort(res_hdet['sobject_id'])]
+res_hdet.write(results_data_dir + 'results_H_lines_complete.fits', overwrite=True)
+res_hdet['sobject_id', 'SB2_c1', 'SB2_c3'].write(results_data_dir + 'results_H_lines_complete_Gregor.fits', overwrite=True)
 print(res_hdet)
 print('Results so far:', len(res_hdet))
 # s_u, c_u = np.unique(res_all['sobject_id'], return_counts=True)
@@ -49,27 +47,32 @@ print('Results unflagged:', len(res_hdet))
 idx_unf = res_hdet['flag'] == 0
 idx_bin = np.logical_or(res_hdet['SB2_c1'] >= 1, res_hdet['SB2_c3'] >= 1)
 idx_bin_conf = np.logical_and(res_hdet['SB2_c1'] >= 1, res_hdet['SB2_c3'] >= 1)
-idx_bin_conf = np.logical_and(idx_bin_conf, res_hdet['flag'] <= 3)
 idx_neb = (res_hdet['NII'] + res_hdet['SII']) >= 3
-idx_emi = np.logical_and(res_hdet['Ha_EW'] > 0.35, res_hdet['Ha_EW_abs'] > 0.45)  # TODO: better definition of EW thresholds
+idx_emi = np.logical_and(res_hdet['Ha_EW'] > 0.4, res_hdet['Ha_EW_abs'] > 0.5)  # EW thresholds for weak emissions, TODO
+idx_emi_strong = np.logical_and(res_hdet['Ha_EW'] > 0.8, res_hdet['Ha_EW_abs'] > 0.5)  # EW thresholds for the strongest
+idx_asym_h = np.sqrt(res_hdet['Ha_EW_asym']**2 + res_hdet['Hb_EW_asym']**2) > 0.3
 
 
 # ----------------------------------------
 # ------------ FUNCTIONS -----------------
 # ----------------------------------------
-def copy_ids_to_curr_map(sel_ids, cp_dir, suffix='', prefixes=None):
+def copy_ids_to_curr_map(sel_ids, cp_dir, suffix='',
+                         prefixes=None, suffixes=None):
     system('mkdir ' + cp_dir)
     chdir(cp_dir)
     for i_s, star_id in enumerate(sel_ids):
         s_date = np.int32(star_id / 10e10)
         sobj = str(star_id)
-        # print(sobj
+        # print(sobj)
 
         source = results_data_dir + str(s_date) + '/' + str(sobj) + suffix + '.png'
         prefix = ''
+        suffix2 = ''
         if prefixes is not None:
             prefix += prefixes[i_s] + '_'
-        target = cp_dir + '/' + prefix + str(sobj) + suffix + '.png'
+        if suffixes is not None:
+            suffix2 += '_' + suffixes[i_s]
+        target = cp_dir + '/' + prefix + str(sobj) + suffix + suffix2 + '.png'
 
         if path.isfile(target):
             continue
@@ -100,58 +103,143 @@ print('Unique:', np.sum(idx_show_ids))
 # - repeats could be from different programs than the GALAH -> (TESS, K2, clusters, pilot, Orion ...), therefore
 #   repeats detection is based on logged coordinates of the spectrum
 # ----------------------------------------
-ra_dec_all = coord.ICRS(ra=res_hdet['ra']*un.deg,
-                        dec=res_hdet['dec']*un.deg)
-idx_detected = idx_emi * idx_unf * np.logical_not(idx_bin)
-res_hdet['repeated'] = np.int32(0)
-id_rep = 1
+if ANALYSE_REPEATS:
+    ra_dec_all = coord.ICRS(ra=res_hdet['ra']*un.deg,
+                            dec=res_hdet['dec']*un.deg)
+    # use only the strongest detected emissions when dealing with repeated observations
+    idx_detected = idx_emi_strong * idx_unf * np.logical_not(idx_bin)
+    res_hdet['id_rep'] = np.int32(0)
+    id_rep = 1
 
-rep_dir = out_dir + 'repeats/'
-system('mkdir ' + rep_dir)
-chdir(rep_dir)
+    rep_dir = out_dir + 'repeats/'
+    system('mkdir ' + rep_dir)
+    chdir(rep_dir)
 
-for star in res_hdet:
-    ra_dec_star = coord.ICRS(ra=star['ra']*un.deg,
-                             dec=star['dec']*un.deg)
-    idx_close = ra_dec_all.separation(ra_dec_star) < 0.5 * un.arcsec
-    if np.sum(idx_close) > 1 and np.sum(res_hdet['repeated'][idx_close]) == 0:
-        # we have a repeated observation of a star that wan not yet detected and analysed
-        res_hdet['repeated'][idx_close] = id_rep
-        id_rep += 1
+    for star in res_hdet:
+        ra_dec_star = coord.ICRS(ra=star['ra']*un.deg,
+                                 dec=star['dec']*un.deg)
 
-        idx_detected_close = idx_close * idx_detected
-        if np.sum(idx_detected_close) >= 1:
-            print('Repeated observations id', id_rep)
-            # at least one of the repeats was detected as emission object
-            rep_subdir = rep_dir + '{:05.0f}'.format(id_rep) + '/'
-            copy_ids_to_curr_map(res_hdet['sobject_id'][idx_close], rep_subdir, suffix='', prefixes=None)
+        if star['id_rep'] > 0:
+            # was already found to be a repeated observation of a star, skip that
+            continue
 
-chdir('..')
+        idx_close = ra_dec_all.separation(ra_dec_star) < 0.5 * un.arcsec
+        n_close = np.sum(idx_close)
+        if n_close > 1 and np.sum(res_hdet['id_rep'][idx_close]) == 0:
+            # we have a repeated observation of a star that was not yet detected and analysed
+            # add a repeate id to observations of the same star
+            res_hdet['id_rep'][idx_close] = id_rep
+            id_rep += 1
 
-raise SystemError
+            # must pass minimum number of repeats to be visually checked and analysed
+            min_rep = 3
+            if n_close < min_rep:
+                continue
 
-n_random_det = 350
+            idx_detected_close = idx_close * idx_detected
+            if np.sum(idx_detected_close) >= 1:
+                print('Repeated observations id', id_rep)
+                # at least one of the repeats was detected as emission object
+                rep_subdir = rep_dir + '{:05.0f}'.format(id_rep) + '/'
+                copy_ids_to_curr_map(res_hdet['sobject_id'][idx_close], rep_subdir, suffix='', prefixes=None)
+
+    chdir('..')
+    # save results
+    res_hdet.write(results_data_dir + 'results_H_lines_complete_with-rep.fits', overwrite=True)
+
+if MAKE_PLOTS:
+    rep_dir = out_dir + 'pretty_plots/'
+    system('mkdir ' + rep_dir)
+    chdir(rep_dir)
+
+    # ----------------------------------------
+    # Make nice analysis plots that will potentially appear in the final published paper
+    # ----------------------------------------
+
+    # determine data rows that will be used for production of plots
+    idx_plot = idx_neb * idx_unf * ~idx_bin_conf
+    # make a plot
+    fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
+    ax.plot((-150, 150), (-150, 150), lw=2, c='C2', alpha=0.75, ls='--')
+    ax.scatter(res_hdet['rv_NII'][idx_plot], res_hdet['rv_SII'][idx_plot], lw=0, s=6, c='black', alpha=0.5)
+    ax.set(xlim=(-120, 120), ylim=(-120, 120),
+           xlabel='Radial velocity of [NII] lines',
+           ylabel='Radial velocity of [SII] lines')
+    ax.grid(ls='--', alpha=0.25, c='black')
+    fig.tight_layout()
+    fig.savefig('sii_nii_rv.png', dpi=250)
+    plt.close(fig)
+
+    # determine data rows that will be used for production of plots
+    idx_plot = idx_neb * idx_unf * ~idx_bin_conf
+    # make a plot
+    fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
+    ax.plot((-1, 1), (-1, 1), lw=2, c='C2', alpha=0.75, ls='--')
+    ax.scatter(res_hdet['NII_EW'][idx_plot], res_hdet['SII_EW'][idx_plot], lw=0, s=6, c='black', alpha=0.5)
+    ax.set(xlim=(-0.05, 0.7), ylim=(-0.05, 0.55),
+           xlabel='Equivalent width of fitted [NII] lines',
+           ylabel='Equivalent width of fitted [SII] lines')
+    ax.grid(ls='--', alpha=0.25, c='black')
+    fig.tight_layout()
+    fig.savefig('sii_nii_ew_corr.png', dpi=250)
+    plt.close(fig)
+
+    # determine data rows that will be used for production of plots
+    idx_plot = idx_emi * idx_unf * ~idx_bin
+    # make a plot
+    fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
+    ax.plot((-1, 5), (-1, 5), lw=2, c='C2', alpha=0.75, ls='--')
+    ax.scatter(res_hdet['Ha_EW'][idx_plot], res_hdet['Hb_EW'][idx_plot], lw=0, s=2, c='black', alpha=0.33)
+    ax.set(xlim=(-0.05, 3.5), ylim=(-0.7, 3),
+           xlabel=r'Equivalent width of H$\alpha$ emission',
+           ylabel=r'Equivalent width of H$\beta$ emission')
+    ax.grid(ls='--', alpha=0.25, c='black')
+    fig.tight_layout()
+    fig.savefig('H_emission_EW_dist.png', dpi=250)
+    plt.close(fig)
+
+    # determine data rows that will be used for production of plots
+    idx_plot = idx_emi * idx_unf * ~idx_bin
+    # make a plot
+    fig, ax = plt.subplots(1, 1, figsize=(7, 6.5))
+
+    ax.scatter(res_hdet['Ha_EW_asym'][idx_plot], res_hdet['Hb_EW_asym'][idx_plot], lw=0, s=3, c='black', alpha=0.33)
+    ax.set(xlim=(-1, 1), ylim=(-1, 1),
+           xlabel=r'Asymmetry index of H$\alpha$ emission',
+           ylabel=r'Asymmetry index of H$\beta$ emission')
+    ax.grid(ls='--', alpha=0.25, c='black')
+    circle = mpatches.Circle((0.0, 0.0), radius=0.3, alpha=1., fill=False,
+                             lw=2.5, ls='--', color='C2')
+    ax.add_patch(circle)
+    fig.tight_layout()
+    fig.savefig('H_emission_asymmetry.png', dpi=250)
+    plt.close(fig)
+
+
+n_random_det = 300
 # ----------------------------------------
 # Totally random subset of results - easy way to browse for strange results
 # ----------------------------------------
 print('N for random selection:', len(res_hdet))
 idx_sel = np.int64(np.random.uniform(0, len(res_hdet), n_random_det))
-copy_ids_to_curr_map(res_hdet['sobject_id'][idx_sel], out_dir + 'random/')
+copy_ids_to_curr_map(res_hdet['sobject_id'][idx_sel], out_dir + 'random/',
+                     prefixes=['{:.3f}'.format(p_val) for p_val in res_hdet['Ha_EW'][idx_sel]],
+                     suffixes=['{:.3f}'.format(p_val) for p_val in res_hdet['Ha_EW_abs'][idx_sel]])
 
-# ----------------------------------------
-# sample of missing spectrum flagged objects
-# ----------------------------------------
-res = res_hdet[np.logical_or(np.bitwise_and(res_hdet['flag'], 32),
-                             np.bitwise_and(res_hdet['flag'], 16))]
-print('N no reference:', len(res))
-idx_sel = np.int64(np.random.uniform(0, len(res), n_random_det))
-copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'flag_noref/')
+# # ----------------------------------------
+# # sample of missing spectrum flagged objects - should not exist in the final version of the detection pipeline
+# # ----------------------------------------
+# res = res_hdet[np.logical_or(np.bitwise_and(res_hdet['flag'], 128),
+#                              np.bitwise_and(res_hdet['flag'], 64))]
+# print('N no reference:', len(res))
+# idx_sel = np.int64(np.random.uniform(0, len(res), n_random_det))
+# copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'flag_noref/')
 
 # ----------------------------------------
 # sample of spectra with large difference towards reference
 # ----------------------------------------
-res = res_hdet[np.logical_or(np.bitwise_and(res_hdet['flag'], 8),
-                             np.bitwise_and(res_hdet['flag'], 4))]
+res = res_hdet[np.logical_or(np.bitwise_and(res_hdet['flag'], 32),
+                             np.bitwise_and(res_hdet['flag'], 16))]
 print('N bad reference:', len(res))
 idx_sel = np.int64(np.random.uniform(0, len(res), n_random_det))
 copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'flag_badref/')
@@ -159,8 +247,8 @@ copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'flag_badref/')
 # ----------------------------------------
 # sample of spectra with possible erroneous wvl reduction or determined RV velocity
 # ----------------------------------------
-res = res_hdet[np.logical_not(np.logical_or(np.bitwise_and(res_hdet['flag'], 32),
-                                            np.bitwise_and(res_hdet['flag'], 16)))]
+res = res_hdet[np.logical_not(np.logical_or(np.bitwise_and(res_hdet['flag'], 128),
+                                            np.bitwise_and(res_hdet['flag'], 64)))]
 res = res[np.logical_or(np.bitwise_and(res['flag'], 2),
                         np.bitwise_and(res['flag'], 1))]
 print('N bad wvl reduction:', len(res))
@@ -190,28 +278,28 @@ res = None
 # ----------------------------------------
 # sample of sb2 stars
 # ----------------------------------------
-if res_all['SB2_c1'].dtype == np.dtype('S5'):
-    res = res_all[np.logical_or(res_all['SB2_c1'] == 'True',
-                                res_all['SB2_c3'] == 'True')]
-else:
-    res = res_all[np.logical_or(res_all['SB2_c1'] >= 1,
-                                res_all['SB2_c3'] >= 1)]
+# res = res_all[np.logical_or(res_all['SB2_c1'] >= 1,
+#                             res_all['SB2_c3'] >= 1)]
+res = res_hdet[idx_bin]
 print('N SB2:', len(res))
 idx_sel = np.int64(np.random.uniform(0, len(res), n_random_det))
 copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'SB2/')
 
+n_random_det = 500
 # ----------------------------------------
 # sample of stars with asymmetric emission line - based on computed EW
 # ----------------------------------------
-idx_asmy = np.logical_and(res_all['Ha_EW_abs'] > 0.4, res_all['Ha_EW'] > 0.1)
-idx_asmy = np.logical_and(idx_asmy, np.sqrt(res_all['Ha_EW_asym']**2 + res_all['Hb_EW_asym']**2) > 0.2)
-res = res_all[idx_asmy]
+idx_asmy = np.logical_and(idx_emi, idx_unf)
+idx_asmy = np.logical_and(idx_asmy, idx_asym_h)
+res = res_hdet[idx_asmy]
 print('N asymmetric:', len(res))
 idx_sel = np.int64(np.random.uniform(0, len(res), n_random_det))
-copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'asym/')
+copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'asym/',
+                     prefixes=['{:.3f}'.format(p_val) for p_val in res['Ha_EW'][idx_sel]],
+                     suffixes=['{:.3f}'.format(p_val) for p_val in res['Ha_EW_abs'][idx_sel]])
 
-n_best = 250
-# ----------------------------------------
+n_best = 7500
+# ----------------------------------------,
 # sort by strongest H-alpha emission spectrum
 # ----------------------------------------
 sort_by = 'Ha_EW'
@@ -232,10 +320,10 @@ plt.tight_layout()
 # plt.show()
 plt.savefig('ra_dec_plot.png', dpi=450)
 plt.close()
-idx_inoc = np.in1d(galah_all['sobject_id'], oc_all['sobject_id'])
 plt.scatter(galah_all['ra'], galah_all['dec'], lw=0, s=0.5, c='0.8')
 # plt.scatter(plot_stars['ra'], plot_stars['dec'], lw=0, s=0.5, c='black')
-plt.scatter(plot_stars['ra'][idx_inoc], plot_stars['dec'][idx_inoc], lw=0, s=0.5, c='red')
+idx_inoc = np.in1d(galah_all['sobject_id'], oc_all['sobject_id'])
+plt.scatter(galah_all['ra'][idx_inoc], galah_all['dec'][idx_inoc], lw=0, s=0.5, c='red')
 plt.xlim(0., 360.)
 plt.ylim(-90., 90.)
 plt.grid(ls='--', alpha=0.2, color='black')

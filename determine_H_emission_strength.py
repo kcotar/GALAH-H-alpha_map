@@ -16,7 +16,7 @@ from sys import argv
 from getopt import getopt
 from copy import deepcopy
 
-SourceFileLoader('helper_functions','../Carbon-Spectra/helper_functions.py').load_module()
+SourceFileLoader('helper_functions', '../Carbon-Spectra/helper_functions.py').load_module()
 from helper_functions import move_to_dir, spectra_normalize
 SourceFileLoader('s_collection', '../Carbon-Spectra/spectra_collection_functions.py').load_module()
 from s_collection import CollectionParameters, read_pkl_spectra, save_pkl_spectra
@@ -58,7 +58,7 @@ print('Reading GALAH parameters')
 date_string = '20190801'
 remove_spikes = False
 
-n_multi = 40
+n_multi = 33
 galah_data_dir = '/shared/ebla/cotar/'
 out_dir = '/shared/data-camelot/cotar/'
 
@@ -205,18 +205,25 @@ def fill_nans(s_obj):
 
 def renorm_by_ref(s_obj, s_ref, wvl):
     # renormalization with reference spectrum
+    min_renorm_px = 200
     idx_ref_px = np.abs(s_ref - 1.) < 0.1
-    if np.sum(idx_ref_px) < 10:
+    if np.sum(idx_ref_px) < min_renorm_px:
+        idx_ref_px = np.abs(s_ref - 1.) < 0.15
+        if np.sum(idx_ref_px) < min_renorm_px:
+            return s_obj
+    try:
+        s_obj_norm_curve = spectra_normalize(wvl, s_obj / s_ref,
+                                             steps=3, sigma_low=2., sigma_high=2., n_min_perc=5.,
+                                             order=2, func='poly', fit_mask=idx_ref_px, return_fit=True)
+        return s_obj / s_obj_norm_curve
+    except:
+        print('  Renormalization problem')
         return s_obj
-    s_obj_norm_curve = spectra_normalize(wvl, s_obj / s_ref,
-                                         steps=3, sigma_low=2., sigma_high=2., n_min_perc=5.,
-                                         order=2, func='poly', fit_mask=idx_ref_px, return_fit=True)
-    return s_obj / s_obj_norm_curve
 
 
 def integrate_ew_spectra(spectra_data_orig, wvl_data_orig,
                          res_scale=11.,
-                         wvl_range=None, offset=0., abs=False,
+                         wvl_range=None, offset=0., absolute=False,
                          reutrn_maxpeak_rv=False, wvl_rv_ref=None):
 
     # first resample input data to a (much) finer resolution
@@ -245,7 +252,7 @@ def integrate_ew_spectra(spectra_data_orig, wvl_data_orig,
 
     if np.isfinite(spectra_data[idx_spectra_integrate]).all():
         integ_signal = spectra_data - offset
-        if abs:
+        if absolute:
             integ_signal = np.abs(integ_signal)
 
         # integrate flux values corrected for the continuum/offset level to absolute values
@@ -488,6 +495,9 @@ def determine_sky_emission_strength(s_obj, w_obj, linelist,
     for sky_e in linelist_star_frame:
         # specify wlv neighbourhood of the observed sky emission line
         idx_w = np.abs(w_obj - sky_e) <= d_wvl
+        if np.sum(idx_w) <= 0:
+            # skip this emission line as it is located outside the investigated range
+            continue
         max_amp = np.nanmax(s_obj[idx_w])
         if max_amp > e_thr:
             linelist_present.append(sky_e)
@@ -566,7 +576,7 @@ def process_selected_id(s_id):
     # - emission like ccd spikes
     # - discontinuities in observed spectra
 
-    e_sky_thr = 0.15
+    e_sky_thr = 0.1
     sky_all, sky_present = determine_sky_emission_strength(spectra_dif_c3, wvl_val_ccd3, sky_lineslist['Ang'],
                                                            rv=object_parameters['rv_guess_shift'],
                                                            rv_bary=object_parameters['v_bary'], e_thr=e_sky_thr)
@@ -579,7 +589,7 @@ def process_selected_id(s_id):
                                          a_thr=0.45, s_thr_l=3.0, s_thr_u=20., max_peak_offset=70,
                                          verbose=VERBOSE)
     sb2_c1, wvl_c1, ccf_res_c1 = sb2_ccf(spectra_object_c1[idx_ccf_ccd1], spectra_median_c1[idx_ccf_ccd1],
-                                         a_thr=0.45, s_thr_l=3.0, s_thr_u=20.,  max_peak_offset=75,
+                                         a_thr=0.45, s_thr_l=3.0, s_thr_u=20., max_peak_offset=75,
                                          verbose=VERBOSE)
 
     # very high chance of being a SB2 binary star -> raise processing quality flag
@@ -602,13 +612,13 @@ def process_selected_id(s_id):
                                     offset=1., reutrn_maxpeak_rv=True, wvl_rv_ref=HALPHA_WVL,
                                     wvl_range=[HALPHA_WVL - wvl_int_range, HALPHA_WVL + wvl_int_range])
     Ha_EW_abs, Ha_EW_asym = integrate_ew_spectra(spectra_div_c3, wvl_val_ccd3,
-                                    abs=True, offset=1.,
+                                    absolute=True, offset=1.,
                                     wvl_range=[HALPHA_WVL - wvl_int_range, HALPHA_WVL + wvl_int_range])
     Hb_EW, _, Hb_rv = integrate_ew_spectra(spectra_div_c1, wvl_val_ccd1,
                                     offset=1., reutrn_maxpeak_rv=True, wvl_rv_ref=HBETA_WVL,
                                     wvl_range=[HBETA_WVL - wvl_int_range, HBETA_WVL + wvl_int_range])
     Hb_EW_abs, Hb_EW_asym = integrate_ew_spectra(spectra_div_c1, wvl_val_ccd1,
-                                    abs=True, offset=1.,
+                                    absolute=True, offset=1.,
                                     wvl_range=[HBETA_WVL - wvl_int_range, HBETA_WVL + wvl_int_range])
 
     # add to results
@@ -816,19 +826,32 @@ if TEST_RUN:
                    140112002301115, 140309003601373, 150607004101179, 140600921011178, 140609003101388, 150428001601398,
                    140309002101378, 140305001301198, 140113002901294, 140309003601367, 140308001401205, 140309002601352,
                    140308003801011, 140308003801056, 140309004101056, 140301004701056, 140308003801394, 140309003601014]
+    '''
+    sobject_ids = sobject_ids[sobject_ids > 190000000000000]
+    '''
     for so_id in np.unique(sobject_ids):
         so_id_results = process_selected_id(so_id)
         if len(so_id_results) > 0:
             results.add_row(so_id_results)
 else:
+
+    # # first half of the dataset
+    # sobject_ids = sobject_ids[:330000]
+    # out_fits_file = 'results_H_lines' + out_suffix + '_1.fits'
+
+    # second half of the dataset
+    sobject_ids = sobject_ids[330000:]
+    out_fits_file = 'results_H_lines' + out_suffix + '_2.fits'
+
     # multiprocessing - run in multiple subsets as this might reduce memory usage and clear saved astropy.fitting models
-    n_subsets = 100
+    n_subsets = 50
     sobj_ranges = np.int32(np.linspace(0, len(sobject_ids), n_subsets+1))
     for i_subset in range(n_subsets):
         pool = Pool(processes=n_multi)
         subset_sobject_ids = sobject_ids[sobj_ranges[i_subset]: sobj_ranges[i_subset+1]]
-        process_return = np.array(pool.map(process_selected_id, subset_sobject_ids))
+        process_return = pool.map(process_selected_id, subset_sobject_ids)
         pool.close()
+        del pool
         pool = None
 
         # insert individual object results into resulting table
@@ -836,6 +859,6 @@ else:
             if len(so_id_results) > 0:
                 results.add_row(so_id_results)
 
-# save results
-print('Saving results to a table')
-results.write('results_H_lines' + out_suffix + '.fits', overwrite=True)
+        # save partial results at the end of every data subset
+        print('Saving partial results to a table')
+        results.write(out_fits_file, overwrite=True)
