@@ -8,7 +8,7 @@ import astropy.coordinates as coord
 import astropy.units as un
 
 plt.rcParams['font.size'] = 15
-ANALYSE_REPEATS = True
+ANALYSE_REPEATS = False
 MAKE_PLOTS = True
 
 data_dir = '/shared/ebla/cotar/'
@@ -215,6 +215,32 @@ if MAKE_PLOTS:
     fig.savefig('H_emission_asymmetry.png', dpi=250)
     plt.close(fig)
 
+    # determine data rows that will be used for production of plots
+    idx_plot = idx_emi * idx_unf * ~idx_bin
+    # make a plot
+    fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
+    ax.scatter(res_hdet['Ha_EW_asym'][idx_plot], res_hdet['Ha_EW'][idx_plot], lw=0, s=3, c='black', alpha=0.33)
+    ax.set(xlim=(-1, 1), ylim=(-0.05, 3.5),
+           xlabel=r'Asymmetry index of H$\alpha$ emission',
+           ylabel=r'Equivalent width of H$\alpha$ emission')
+    ax.grid(ls='--', alpha=0.25, c='black')
+    fig.tight_layout()
+    fig.savefig('Ha_emission_asymmetry_strength.png', dpi=250)
+    plt.close(fig)
+
+    # determine data rows that will be used for production of plots
+    idx_plot = idx_emi * idx_unf * ~idx_bin
+    # make a plot
+    fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
+    ax.scatter(res_hdet['Hb_EW_asym'][idx_plot], res_hdet['Hb_EW'][idx_plot], lw=0, s=3, c='black', alpha=0.33)
+    ax.set(xlim=(-1, 1), ylim=(-0.7, 3),
+           xlabel=r'Asymmetry index of H$\beta$ emission',
+           ylabel=r'Equivalent width of H$\beta$ emission')
+    ax.grid(ls='--', alpha=0.25, c='black')
+    fig.tight_layout()
+    fig.savefig('Hb_emission_asymmetry_strength.png', dpi=250)
+    plt.close(fig)
+
 
 n_random_det = 300
 # ----------------------------------------
@@ -338,7 +364,7 @@ res = None
 sort_by = 'Ha_EW_abs'
 print('N '+sort_by+':', n_best)
 res = res_all[np.logical_and(np.isfinite(res_all[sort_by]),
-                             res_all['Ha_EW'] > 0.)]
+                             res_all['Ha_EW'] > -2)]  # as we want to discover strange objects with large Ha deviation
 idx_strong = np.argsort(res[sort_by])[::-1]
 copy_ids_to_curr_map(res['sobject_id'][idx_strong[:n_best]], out_dir + 'strongest_absolute/',
                      prefixes=['{:.3f}'.format(p_val) for p_val in res[sort_by][idx_strong[:n_best]]])

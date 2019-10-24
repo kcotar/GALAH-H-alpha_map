@@ -85,13 +85,29 @@ wvl_read_range = 60
 wvl_plot_range_s = 24
 wvl_plot_range_z = 5
 wvl_int_range = 3.5
-HBETA_WVL = 4861.36
-HALPHA_WVL = 6562.81
+HBETA_WVL = 4861.3615
+HALPHA_WVL = 6562.8518
 
 # remove weak and out-of-bounds sky emission lines
-sky_lineslist = sky_lineslist[sky_lineslist['Flux'] >= 1.]
+sky_lineslist = sky_lineslist[sky_lineslist['Flux'] >= 0.9]
 sky_lineslist = sky_lineslist[np.abs(sky_lineslist['Ang'] - HALPHA_WVL) <= wvl_read_range]
+# sort for further refinement of lines
+sky_lineslist = sky_lineslist[np.argsort(sky_lineslist['Ang'])]
+
+# merge close nearby emission lines that are separated for less than the GALAH resolution (~a few wavelength pixels)
+min_sky_wvl_sep = 0.2
+remove_sky_rows = []
+for i_sl, sl in enumerate(sky_lineslist):
+    if i_sl >= len(sky_lineslist) - 1:
+        continue
+    if sky_lineslist['Ang'][i_sl+1] - sky_lineslist['Ang'][i_sl] < min_sky_wvl_sep:
+        sky_lineslist['Ang'][i_sl] = np.mean(sky_lineslist['Ang'][i_sl:i_sl+2])
+        remove_sky_rows.append(i_sl+1)
+if len(remove_sky_rows) > 0:
+    sky_lineslist.remove_rows(remove_sky_rows)
+
 print('Remaining set of sky lines:', len(sky_lineslist))
+print(sky_lineslist)
 
 # exact values of lines taken from http://newt.phys.unsw.edu.au/~jkw/alpha/useful_lines.pdf
 SII_bands = [6716.47, 6730.85]
@@ -179,6 +195,7 @@ move_to_dir(out_dir+'H_band_strength_complete_'+date_string+'_BroadRange_191005'
 # 00010000 or  16 = Large difference between median and observed spectrum in ccd1
 # 00001000 or   8 = Spectrum most likely shows duplicated spectral absorption lines
 # 00000100 or   4 = Strong contamination with sky emission features in ccd3 (one of them falls inside Ha region)
+#                   Flag indicates to strong or to weak background correction.
 # 00000010 or   2 = Wavelength solution (or RV) might be wrong in ccd3 - CCF is not centered at RV = 0
 # 00000001 or   1 = Wavelength solution (or RV) might be wrong in ccd1
 results = Table(names=('sobject_id', 'Ha_EW', 'Hb_EW', 'Ha_EW_abs', 'Hb_EW_abs', 'rv_Ha_peak', 'rv_Hb_peak',
@@ -385,6 +402,8 @@ def sb2_ccf(s_obj, s_ref,
     ccf_y = deepcopy(s_obj)
     ccf_y[ccf_y >= 1.2] = 1.2
     ccf_y[ccf_y <= 0.] = 0.
+    # perform a small amount of noise filtering in the observed signal
+    ccf_y = medfilt(ccf_y, kernel_size=5)
     # perform signal correlation
     ccf_y = correlate(1. - ccf_y, 1. - s_ref, mode='same', method='fft')  # subtract from 1 to remove continuum
     ccf_norm = correlate(ones_y, ones_y, mode='same', method='fft')
@@ -403,7 +422,9 @@ def sb2_ccf(s_obj, s_ref,
     n_gauss = 3
 
     # detect strongest peaks
-    idx_peaks = argrelextrema(ccf_y, np.greater, order=3, mode='clip')[0]
+    idx_peaks = argrelextrema(ccf_y, np.greater, order=2, mode='clip')[0]
+    # limit peaks to a reasonable values inside expected CCF RV values
+    idx_peaks = idx_peaks[np.abs(idx_peaks) < 120]
     if len(idx_peaks) >= n_gauss:
         # select n_gauss strongest peaks
         idx_pekas_best = idx_peaks[np.argsort(ccf_y[idx_peaks])[-n_gauss:]]
@@ -424,7 +445,7 @@ def sb2_ccf(s_obj, s_ref,
                                    # mean=(n_gauss - 2)*40. - 40.*i_l,
                                    mean=ccf_extrema[i_l]
                                    )
-        e_fit.bounds['mean_' + str(i_l + 1)] = [-w_ccf+20, w_ccf-20]
+        e_fit.bounds['mean_' + str(i_l + 1)] = [-w_ccf+2, w_ccf-2]
         e_fit.bounds['stddev_' + str(i_l + 1)] = [0., 70.]
         e_fit.bounds['amplitude_' + str(i_l + 1)] = [0., 2.]
     # fit_t = fitting.SLSQPLSQFitter()
@@ -492,18 +513,24 @@ def determine_sky_emission_strength(s_obj, w_obj, linelist,
 
     # check lines one by one - simple peak thresholding, nothing fancy
     linelist_present = []
+    linelist_present_neg = []
     for sky_e in linelist_star_frame:
         # specify wlv neighbourhood of the observed sky emission line
         idx_w = np.abs(w_obj - sky_e) <= d_wvl
         if np.sum(idx_w) <= 0:
             # skip this emission line as it is located outside the investigated range
             continue
+        # determine too low atmospheric/background correction
         max_amp = np.nanmax(s_obj[idx_w])
-        if max_amp > e_thr:
+        if max_amp > 1.*e_thr:
             linelist_present.append(sky_e)
+        # determine too strong atmospheric/background correction
+        min_amp = np.nanmin(s_obj[idx_w])
+        if min_amp < -1.*e_thr:
+            linelist_present_neg.append(sky_e)
 
     # return lines that are possiblly present in the spectrum difference
-    return linelist_star_frame, linelist_present
+    return linelist_star_frame, linelist_present, linelist_present_neg
 
 
 # --------------------------------------------------------
@@ -545,7 +572,7 @@ def process_selected_id(s_id):
     rms_c3 = (np.nanmedian((spectra_median_c3 - spectra_object_c3)**2))
     rms_c3_SII = (np.nanmedian((spectra_median_c3_SII - spectra_object_c3_SII)**2))
 
-    # flag baddly correlated spectra and median spectra
+    # flag badly correlated spectra and median spectra
     distance_thr = 0.004
     if rms_c3 >= 0.001:
         proc_flag += 0b00100000
@@ -577,19 +604,19 @@ def process_selected_id(s_id):
     # - discontinuities in observed spectra
 
     e_sky_thr = 0.1
-    sky_all, sky_present = determine_sky_emission_strength(spectra_dif_c3, wvl_val_ccd3, sky_lineslist['Ang'],
+    sky_all, sky_present, sky_present_neg = determine_sky_emission_strength(spectra_dif_c3, wvl_val_ccd3, sky_lineslist['Ang'],
                                                            rv=object_parameters['rv_guess_shift'],
                                                            rv_bary=object_parameters['v_bary'], e_thr=e_sky_thr)
     # set sky emission warning quality flag if many sky line were detected to be present in the spectrum difference
-    if len(sky_present) >= 3:
+    if len(sky_present) >= 3 or len(sky_present_neg) >= 3:
         proc_flag += 0b00000100
 
     # compute cross-correlation function for both bands to identify possible SB2 object and wrong wavelength calibration
     sb2_c3, wvl_c3, ccf_res_c3 = sb2_ccf(spectra_object_c3[idx_ccf_ccd3], spectra_median_c3[idx_ccf_ccd3],
-                                         a_thr=0.45, s_thr_l=3.0, s_thr_u=20., max_peak_offset=70,
+                                         a_thr=0.45, s_thr_l=2.5, s_thr_u=20., max_peak_offset=115,
                                          verbose=VERBOSE)
     sb2_c1, wvl_c1, ccf_res_c1 = sb2_ccf(spectra_object_c1[idx_ccf_ccd1], spectra_median_c1[idx_ccf_ccd1],
-                                         a_thr=0.45, s_thr_l=3.0, s_thr_u=20., max_peak_offset=75,
+                                         a_thr=0.45, s_thr_l=2.5, s_thr_u=20., max_peak_offset=125,
                                          verbose=VERBOSE)
 
     # very high chance of being a SB2 binary star -> raise processing quality flag
@@ -746,14 +773,17 @@ def process_selected_id(s_id):
 
         # visualize position and detected sky lines
         axs[3, 2].plot(wvl_val_ccd3, spectra_dif_c3, color='black', linewidth=0.5)
-        axs[3, 2].set(xlim=(HALPHA_WVL - wvl_plot_range_s, HALPHA_WVL + wvl_plot_range_s), ylim=(-0.15, 0.4),
-                      ylabel='Difference log(flux)', xlabel='Strongest sky emissions detected = {:.0f}'.format(len(sky_present)))
+        axs[3, 2].set(xlim=(HALPHA_WVL - wvl_plot_range_s, HALPHA_WVL + wvl_plot_range_s), ylim=(-0.2, 0.2),
+                      ylabel='Difference log(flux)', xlabel='Strongest sky emissions detected = {:.0f}, {:.0f}'.format(len(sky_present), len(sky_present_neg)))
         # add thresholding value for detection of emission peaks
         axs[3, 2].axhline(e_sky_thr, color='black', alpha=0.6, ls='--')
+        axs[3, 2].axhline(-1. * e_sky_thr, color='black', alpha=0.6, ls='--')
         for e_sky in sky_all:  # visualize all sky lines and their transformed wvl position
-            axs[3, 2].axvline(e_sky, color='C2', alpha=0.8, ls='--')
-        for e_sky in sky_present:  # highlight only detected sky lines
-            axs[3, 2].axvline(e_sky, color='C3', alpha=0.8, ls='--')
+            axs[3, 2].axvline(e_sky, color='C2', alpha=0.75, ls='--')
+        for e_sky in sky_present:  # highlight only detected strong pozitive sky lines
+            axs[3, 2].axvline(e_sky + 1.5 * dwvl_ccd3, color='C3', alpha=0.75, ls='--')
+        for e_sky in sky_present_neg:  # highlight only detected strong negative sky lines
+            axs[3, 2].axvline(e_sky - 1.5 * dwvl_ccd3, color='C1', alpha=0.75, ls='--')
 
         # add grid lines to every plot available
         for ip in range(3):
@@ -825,7 +855,10 @@ if TEST_RUN:
                    170905002101249, 170805004601106, 170725005101394, 170603005601057, 170404003101254, 160111001601202,
                    140112002301115, 140309003601373, 150607004101179, 140600921011178, 140609003101388, 150428001601398,
                    140309002101378, 140305001301198, 140113002901294, 140309003601367, 140308001401205, 140309002601352,
-                   140308003801011, 140308003801056, 140309004101056, 140301004701056, 140308003801394, 140309003601014]
+                   140308003801011, 140308003801056, 140309004101056, 140301004701056, 140308003801394, 140309003601014,
+                   140808002101004, 140809001601034, 171102001601041, 170513003501193, 170109002101011, 190225003701061,
+                   150606002401302, 140812003801021, 160419002101393, 140812003801202, 140307002601272, 170515004101070,
+                   140824003501176, 141231004001024, 150607003601015, 170108002201038, 170806005801117]
     '''
     sobject_ids = sobject_ids[sobject_ids > 190000000000000]
     '''
