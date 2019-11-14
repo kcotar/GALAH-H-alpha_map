@@ -58,14 +58,15 @@ print('Reading GALAH parameters')
 date_string = '20190801'
 remove_spikes = False
 
-n_multi = 33
+n_multi = 30
 galah_data_dir = '/shared/ebla/cotar/'
 out_dir = '/shared/data-camelot/cotar/'
 
 # additional data and products about observed spectra
-general_data = Table.read(galah_data_dir + 'sobject_iraf_53_reduced_'+date_string+'.fits')
+general_data = Table.read(galah_data_dir + 'sobject_iraf_53_reduced_'+date_string+'.fits')['sobject_id', 'red_flag', 'rv_guess_shift', 'v_bary']
 params_data = Table.read(galah_data_dir + 'GALAH_iDR3_main_alpha_190529.fits')
 general_data = join(general_data, params_data['sobject_id', 'teff', 'fe_h', 'logg', 'flag_sp'], join_type='left')
+del params_data
 # auxiliary data-sets
 sky_lineslist = Table.read(galah_data_dir + 'sky_emission_linelist.csv', format='ascii.csv')
 
@@ -84,6 +85,7 @@ ccd3_wvl = CollectionParameters(spectra_ccd3_pkl).get_wvl_values()
 wvl_read_range = 60
 wvl_plot_range_s = 24
 wvl_plot_range_z = 5
+wvl_peak_range = 2
 wvl_int_range = 3.5
 HBETA_WVL = 4861.3615
 HALPHA_WVL = 6562.8518
@@ -199,10 +201,10 @@ move_to_dir(out_dir+'H_band_strength_complete_'+date_string+'_BroadRange_191005'
 # 00000010 or   2 = Wavelength solution (or RV) might be wrong in ccd3 - CCF is not centered at RV = 0
 # 00000001 or   1 = Wavelength solution (or RV) might be wrong in ccd1
 results = Table(names=('sobject_id', 'Ha_EW', 'Hb_EW', 'Ha_EW_abs', 'Hb_EW_abs', 'rv_Ha_peak', 'rv_Hb_peak',
-                       'Ha_EW_asym', 'Hb_EW_asym', 'SB2_c3', 'SB2_c1',
+                       'Ha_W10', 'Ha_EW_asym', 'Hb_EW_asym', 'SB2_c3', 'SB2_c1',
                        'NII', 'SII', 'NII_EW', 'SII_EW', 'rv_NII', 'rv_SII', 'flag'),
                 dtype=('int64', 'float64', 'float64', 'float64', 'float64', 'float64', 'float64',
-                       'float64', 'float64', 'bool', 'bool',
+                       'float64', 'float64', 'float64', 'bool', 'bool',
                        'int16', 'int16', 'float64', 'float64', 'float64', 'float64', 'int16'))
 n_cols_out = len(results.columns)
 
@@ -231,7 +233,7 @@ def renorm_by_ref(s_obj, s_ref, wvl):
     try:
         s_obj_norm_curve = spectra_normalize(wvl, s_obj / s_ref,
                                              steps=3, sigma_low=2., sigma_high=2., n_min_perc=5.,
-                                             order=2, func='poly', fit_mask=idx_ref_px, return_fit=True)
+                                             order=3, func='poly', fit_mask=idx_ref_px, return_fit=True)
         return s_obj / s_obj_norm_curve
     except:
         print('  Renormalization problem')
@@ -403,7 +405,7 @@ def sb2_ccf(s_obj, s_ref,
     ccf_y[ccf_y >= 1.2] = 1.2
     ccf_y[ccf_y <= 0.] = 0.
     # perform a small amount of noise filtering in the observed signal
-    ccf_y = medfilt(ccf_y, kernel_size=5)
+    ccf_y = medfilt(ccf_y, kernel_size=3)
     # perform signal correlation
     ccf_y = correlate(1. - ccf_y, 1. - s_ref, mode='same', method='fft')  # subtract from 1 to remove continuum
     ccf_norm = correlate(ones_y, ones_y, mode='same', method='fft')
@@ -424,7 +426,7 @@ def sb2_ccf(s_obj, s_ref,
     # detect strongest peaks
     idx_peaks = argrelextrema(ccf_y, np.greater, order=2, mode='clip')[0]
     # limit peaks to a reasonable values inside expected CCF RV values
-    idx_peaks = idx_peaks[np.abs(idx_peaks) < 120]
+    idx_peaks = idx_peaks[np.abs(ccf_y[idx_peaks]) < 120]
     if len(idx_peaks) >= n_gauss:
         # select n_gauss strongest peaks
         idx_pekas_best = idx_peaks[np.argsort(ccf_y[idx_peaks])[-n_gauss:]]
@@ -438,9 +440,9 @@ def sb2_ccf(s_obj, s_ref,
     # e_fit = models.Trapezoid1D(amplitude=np.percentile(ccf_y, 90), x_0=0., width=0., slope=1., fixed={'width': True})
     # e_fit = models.Const1D(amplitude=np.mean(ccf_y))
     for i_l in range(n_gauss):
-        g_amp = 0.5
+        g_amp = 0.8
         if i_l == 1:
-            g_amp = 1.
+            g_amp = 1.2
         e_fit += models.Gaussian1D(amplitude=g_amp, stddev=8,
                                    # mean=(n_gauss - 2)*40. - 40.*i_l,
                                    mean=ccf_extrema[i_l]
@@ -531,6 +533,41 @@ def determine_sky_emission_strength(s_obj, w_obj, linelist,
 
     # return lines that are possiblly present in the spectrum difference
     return linelist_star_frame, linelist_present, linelist_present_neg
+
+
+def emis_peak_width(s_obj, w_obj, peak_loc, w_peak,
+                    at_perc=10.):
+    # investigate emission line peak and return its width at selected peak depth
+    idx_range = np.where(np.abs(w_obj - peak_loc) <= w_peak)[0]
+    # determine highest pixel location at the selected location and range
+    idx_peak = idx_range[np.argmax(s_obj[idx_range])]
+    # peak strength and its limit at selected peak percentage
+    p_offset = np.nanmedian(s_obj)
+    p_max = s_obj[idx_peak] - p_offset
+    p_thr = p_max * at_perc/100. + p_offset
+
+    # determine peak limits at selected threshold p_thr
+    def _peak_lim(w_s):
+        # w_s == step width
+        idx_cur = deepcopy(idx_peak)
+        # find boundary bellow requested threshold
+        while s_obj[idx_cur] >= p_thr:
+            idx_cur += w_s
+
+        # determine a spectrum point bellow and above the thresholding line
+        y1 = w_obj[idx_cur]
+        y2 = w_obj[idx_cur-1]
+        x1 = s_obj[idx_cur]
+        x2 = s_obj[idx_cur-1]
+        # interpolate to find width
+        return np.interp(p_thr, [x1, x2], [y1, y2])
+
+    # compute peak width using both left and right peak wings
+    width_l = _peak_lim(-1)
+    width_r = _peak_lim(1)
+    p_width = width_r - width_l
+    # return emission line width as velocity - km/s
+    return p_width / peak_loc * const.c.value/1000.
 
 
 # --------------------------------------------------------
@@ -648,9 +685,12 @@ def process_selected_id(s_id):
                                     absolute=True, offset=1.,
                                     wvl_range=[HBETA_WVL - wvl_int_range, HBETA_WVL + wvl_int_range])
 
+    # determine peak width in velocity units
+    Ha_W10 = emis_peak_width(spectra_div_c3, wvl_val_ccd3, HALPHA_WVL, wvl_peak_range, at_perc=10.)
+
     # add to results
     output_array = [s_id, Ha_EW, Hb_EW, Ha_EW_abs, Hb_EW_abs, Ha_rv, Hb_rv,
-                    Ha_EW_asym, Hb_EW_asym, sb2_c3, sb2_c1,
+                    Ha_W10, Ha_EW_asym, Hb_EW_asym, sb2_c3, sb2_c1,
                     nii_det, sii_det, nii_EW, sii_EW, nii_rv, sii_rv, proc_flag]
 
     # write_csv_string = ','.join([str(v) for v in output_array]) + '\n'
@@ -866,15 +906,16 @@ if TEST_RUN:
         so_id_results = process_selected_id(so_id)
         if len(so_id_results) > 0:
             results.add_row(so_id_results)
+    results.write(results_csv_out[:-3] + 'fits', overwrite=True)
 else:
 
-    # # first half of the dataset
-    # sobject_ids = sobject_ids[:330000]
-    # out_fits_file = 'results_H_lines' + out_suffix + '_1.fits'
+    # first half of the dataset
+    sobject_ids = sobject_ids[:330000]
+    out_fits_file = 'results_H_lines' + out_suffix + '_1.fits'
 
-    # second half of the dataset
-    sobject_ids = sobject_ids[330000:]
-    out_fits_file = 'results_H_lines' + out_suffix + '_2.fits'
+    # # second half of the dataset
+    # sobject_ids = sobject_ids[330000:]
+    # out_fits_file = 'results_H_lines' + out_suffix + '_2.fits'
 
     # multiprocessing - run in multiple subsets as this might reduce memory usage and clear saved astropy.fitting models
     n_subsets = 50

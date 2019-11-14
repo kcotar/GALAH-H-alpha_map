@@ -30,10 +30,17 @@ print('Results so far:', len(res_hdet))
 res_hdet = unique(res_hdet, keys='sobject_id', keep='first')
 print('Unique results:', len(res_hdet))
 
+# read and add additional GALAH data tables
 binary_candidates_gregor = Table.read(results_data_dir + 'galah_binary_all_candidates_radec.csv', format='ascii.csv')
 galah_all = Table.read(data_dir + 'sobject_iraf_53_reduced_20190801.fits')
 oc_all = Table.read(data_dir + 'clusters/members_open_gaia_r2.fits')
 res_hdet = join(res_hdet, galah_all['sobject_id', 'ra', 'dec'], keys='sobject_id', join_type='left')
+# read IPHAS DR2 and VPHAS DR2 photometry values
+iphas = Table.read(data_dir + 'photometry/' + 'IPHAS_dr2_Barentsen_20190801_clean.csv', format='ascii.csv')['sobject_id', 'ha', 'haErr', 'r', 'rErr', 'i', 'iErr']
+vphas = Table.read(data_dir + 'photometry/' + 'VPHAS_dr2_Drew_20190801.csv', format='ascii.csv')['sobject_id', 'Hamag', 'e_Hamag', 'rmag', 'e_rmag', 'imag', 'e_imag']
+# add photometry tot he final table
+res_hdet = join(res_hdet, iphas, keys='sobject_id', join_type='left')
+res_hdet = join(res_hdet, vphas, keys='sobject_id', join_type='left')
 
 print(' Flag stats:')
 vf, nf = np.unique(res_hdet['flag'], return_counts=True)
@@ -170,6 +177,9 @@ if MAKE_PLOTS:
     fig.savefig('sii_nii_rv.png', dpi=250)
     plt.close(fig)
 
+    # export stars with confident contribution of nebular emission present in the spectrum
+    res_hdet['sobject_id', 'ra', 'dec'][idx_plot].write(results_data_dir + 'results_H_lines_nebular-pos-only.fits', overwrite=True)
+
     # determine data rows that will be used for production of plots
     idx_plot = idx_neb * idx_unf * ~idx_bin_conf
     # make a plot
@@ -243,6 +253,16 @@ if MAKE_PLOTS:
 
 
 n_random_det = 300
+# ----------------------------------------
+# Spectra with possible crosstalk signal present in the red spectral arm
+# ----------------------------------------
+res = res_hdet[np.logical_and(res_hdet['flag'] == 0,
+                              res_hdet['SB2_c3'] >= 1)]
+res = res[res['SB2_c1'] == 0]
+print('N possible crosstalk:', len(res))
+idx_sel = np.int64(np.random.uniform(0, len(res), n_random_det))
+copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'possible_crosstalk/')
+
 # ----------------------------------------
 # Totally random subset of results - easy way to browse for strange results
 # ----------------------------------------
@@ -324,7 +344,7 @@ copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'asym/',
                      prefixes=['{:.3f}'.format(p_val) for p_val in res['Ha_EW'][idx_sel]],
                      suffixes=['{:.3f}'.format(p_val) for p_val in res['Ha_EW_abs'][idx_sel]])
 
-n_best = 7500
+n_best = 1000
 # ----------------------------------------,
 # sort by strongest H-alpha emission spectrum
 # ----------------------------------------
