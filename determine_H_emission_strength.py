@@ -72,10 +72,12 @@ sky_lineslist = Table.read(galah_data_dir + 'sky_emission_linelist.csv', format=
 
 spectra_ccd1_pkl = 'galah_dr53_ccd1_4710_4910_wvlstep_0.040_ext4_'+date_string+'.pkl'
 # median_spectra_ccd1_pkl = 'galah_dr53_ccd1_4710_4910_wvlstep_0.040_ext4_'+date_string+'_median_350_snr_15_teff_150_logg_0.20_feh_0.20_vbroad_10_hbeta.pkl'
-median_spectra_ccd1_pkl = 'galah_dr53_ccd1_4710_4910_wvlstep_0.040_ext4_'+date_string+'_median_500_snr_15_teff_300_logg_0.30_feh_0.30_vbroad_10_hbeta.pkl'
+# median_spectra_ccd1_pkl = 'galah_dr53_ccd1_4710_4910_wvlstep_0.040_ext4_'+date_string+'_median_500_snr_15_teff_300_logg_0.30_feh_0.30_vbroad_10_hbeta.pkl'
+median_spectra_ccd1_pkl = 'galah_dr53_ccd1_4710_4910_wvlstep_0.040_ext4_'+date_string+'_ann_median.pkl'
 spectra_ccd3_pkl = 'galah_dr53_ccd3_6475_6745_wvlstep_0.060_ext4_'+date_string+'.pkl'
 # median_spectra_ccd3_pkl = 'galah_dr53_ccd3_6475_6745_wvlstep_0.060_ext4_'+date_string+'_median_350_snr_25_teff_150_logg_0.20_feh_0.20_vbroad_10_halpha.pkl'
-median_spectra_ccd3_pkl = 'galah_dr53_ccd3_6475_6745_wvlstep_0.060_ext4_'+date_string+'_median_500_snr_25_teff_300_logg_0.30_feh_0.30_vbroad_10_halpha.pkl'
+# median_spectra_ccd3_pkl = 'galah_dr53_ccd3_6475_6745_wvlstep_0.060_ext4_'+date_string+'_median_500_snr_25_teff_300_logg_0.30_feh_0.30_vbroad_10_halpha.pkl'
+median_spectra_ccd3_pkl = 'galah_dr53_ccd3_6475_6745_wvlstep_0.060_ext4_'+date_string+'_ann_median.pkl'
 
 # parse interpolation and averaging settings from filename
 ccd1_wvl = CollectionParameters(spectra_ccd1_pkl).get_wvl_values()
@@ -188,7 +190,8 @@ idx_object_ok = np.logical_and(idx_object_ok, np.bitwise_and(general_data['red_f
 sobject_ids = general_data[idx_object_ok]['sobject_id']
 
 # move_to_dir(out_dir+'H_band_strength_all_'+date_string)
-move_to_dir(out_dir+'H_band_strength_complete_'+date_string+'_BroadRange_191005')
+# move_to_dir(out_dir+'H_band_strength_complete_'+date_string+'_BroadRange_191005')
+move_to_dir(out_dir+'H_band_strength_complete_'+date_string+'_ANN-medians')
 
 # binary flag describing processing step where something went wrong or data are missing:
 # 10000000 or 128 = Missing median spectrum in ccd3 (red spectral range around H-alpha)
@@ -232,7 +235,7 @@ def renorm_by_ref(s_obj, s_ref, wvl):
             return s_obj
     try:
         s_obj_norm_curve = spectra_normalize(wvl, s_obj / s_ref,
-                                             steps=3, sigma_low=2., sigma_high=2., n_min_perc=5.,
+                                             steps=5, sigma_low=2., sigma_high=2., n_min_perc=5.,
                                              order=3, func='poly', fit_mask=idx_ref_px, return_fit=True)
         return s_obj / s_obj_norm_curve
     except:
@@ -625,11 +628,9 @@ def process_selected_id(s_id):
     spectra_median_c1 = fill_nans(spectra_median_c1)
 
     # compute spectra difference and division
-    # spectra_dif = spectra_object - spectra_median
-    # spectra_dif = np.exp(-np.log(spectra_median) - (-np.log(spectra_object)))
-    spectra_dif_c1 = -np.log(spectra_median_c1) - (-np.log(spectra_object_c1))
-    spectra_dif_c3 = -np.log(spectra_median_c3) - (-np.log(spectra_object_c3))
-    spectra_dif_c3_SII = -np.log(spectra_median_c3_SII) - (-np.log(spectra_object_c3_SII))
+    spectra_dif_c1 = spectra_object_c1 - spectra_median_c1
+    spectra_dif_c3 = spectra_object_c3 - spectra_median_c3
+    spectra_dif_c3_SII = spectra_object_c3_SII - spectra_median_c3_SII
     spectra_div_c1 = spectra_object_c1 / spectra_median_c1
     spectra_div_c3 = spectra_object_c3 / spectra_median_c3
     spectra_div_c3_SII = spectra_object_c3_SII / spectra_median_c3_SII
@@ -715,7 +716,7 @@ def process_selected_id(s_id):
         axs[0, 0].legend()
         axs[0, 1].plot(wvl_val_ccd3, spectra_dif_c3, color='black', linewidth=0.5)
         axs[0, 1].set(xlim=(HALPHA_WVL - wvl_plot_range_s, HALPHA_WVL + wvl_plot_range_s), ylim=(-0.3, 0.8),
-                      ylabel='Difference log(flux)', xlabel='Valid [NII] lines = {:.0f}'.format(nii_det))
+                      ylabel='Difference lux', xlabel='Valid [NII] lines = {:.0f}'.format(nii_det))
         axs[0, 2].plot(wvl_val_ccd3, spectra_div_c3, color='black', linewidth=0.5)
         ymlim_max = np.max(spectra_div_c3[np.abs(wvl_val_ccd3 - HALPHA_WVL) <= wvl_int_range]) * 1.05  # determine ylim
         axs[0, 2].set(xlim=(HALPHA_WVL - wvl_plot_range_z, HALPHA_WVL + wvl_plot_range_z), ylim=(0.7, ymlim_max),
@@ -741,7 +742,7 @@ def process_selected_id(s_id):
         axs[1, 0].legend()
         axs[1, 1].plot(wvl_val_ccd3_SII, spectra_dif_c3_SII, color='black', linewidth=0.5)
         axs[1, 1].set(xlim=(SII_WVL - 2.*wvl_plot_range_z, SII_WVL + 2.*wvl_plot_range_z), ylim=(-0.3, 0.8),
-                      ylabel='Difference log(flux)', xlabel='Valid [SII] lines = {:.0f}'.format(sii_det))
+                      ylabel='Difference flux', xlabel='Valid [SII] lines = {:.0f}'.format(sii_det))
         axs[1, 2].plot(wvl_val_ccd3_SII, spectra_div_c3_SII, color='black', linewidth=0.5)
         axs[1, 2].set(xlim=(SII_WVL - 2.*wvl_plot_range_z, SII_WVL + 2.*wvl_plot_range_z), ylim=(0.7, 2.),
                       ylabel='Division flux')
@@ -764,7 +765,7 @@ def process_selected_id(s_id):
         axs[2, 0].legend()
         axs[2, 1].plot(wvl_val_ccd1, spectra_dif_c1, color='black', linewidth=0.5)
         axs[2, 1].set(xlim=(HBETA_WVL - wvl_plot_range_s, HBETA_WVL + wvl_plot_range_s), ylim=(-0.3, 2),
-                      ylabel='Difference log(flux)', xlabel='Wavelength')
+                      ylabel='Difference flux', xlabel='Wavelength')
         axs[2, 2].plot(wvl_val_ccd1, spectra_div_c1, color='black', linewidth=0.5)
         ymlim_max = np.max(spectra_div_c1[np.abs(wvl_val_ccd1 - HBETA_WVL) <= wvl_int_range]) * 1.05  # determine ylim
         axs[2, 2].set(xlim=(HBETA_WVL - wvl_plot_range_z, HBETA_WVL + wvl_plot_range_z), ylim=(0.7, ymlim_max),
@@ -814,7 +815,7 @@ def process_selected_id(s_id):
         # visualize position and detected sky lines
         axs[3, 2].plot(wvl_val_ccd3, spectra_dif_c3, color='black', linewidth=0.5)
         axs[3, 2].set(xlim=(HALPHA_WVL - wvl_plot_range_s, HALPHA_WVL + wvl_plot_range_s), ylim=(-0.2, 0.2),
-                      ylabel='Difference log(flux)', xlabel='Strongest sky emissions detected = {:.0f}, {:.0f}'.format(len(sky_present), len(sky_present_neg)))
+                      ylabel='Difference flux', xlabel='Strongest sky emissions detected = {:.0f}, {:.0f}'.format(len(sky_present), len(sky_present_neg)))
         # add thresholding value for detection of emission peaks
         axs[3, 2].axhline(e_sky_thr, color='black', alpha=0.6, ls='--')
         axs[3, 2].axhline(-1. * e_sky_thr, color='black', alpha=0.6, ls='--')
