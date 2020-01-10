@@ -3,10 +3,18 @@ import numpy as np
 import matplotlib.pyplot as plt
 import astropy.units as un
 import astropy.coordinates as coord
+from astropy.table import Table
 from multiprocessing import Pool
 from os import system, path
-plt.rcParams['font.size'] = 10
+plt.rcParams['font.size'] = 15
 
+date_string = '20190801'
+galah_data_dir = '/shared/ebla/cotar/'
+out_dir = '/shared/data-camelot/cotar/'
+general_data = Table.read(galah_data_dir + 'sobject_iraf_53_reduced_'+date_string+'.fits')['sobject_id','ra','dec']
+
+ra_dec_stars = coord.ICRS(ra=general_data['ra']*un.deg, dec=general_data['dec']*un.deg)
+l_b_stars = ra_dec_stars.transform_to(coord.Galactic)
 
 # reddening = list([])
 # for ll_s, bb_s in zip(ll_v, bb_v):
@@ -24,7 +32,7 @@ d_deg = 0.5
 n_deg = int(round(360. / d_deg))
 ll = np.linspace(0., 360., n_deg)
 bb = np.linspace(-90., 90., int(round(n_deg / 2.)))
-dist = 2500
+dist = 2000
 file_out = 'red_values_ll_bb_d{:04d}_n{:d}.csv'.format(dist, n_deg)
 
 if path.isfile(file_out):
@@ -67,16 +75,17 @@ plt.colorbar()
 plt.tight_layout()
 plt.savefig('reddening_d{:04d}_n{:d}_map.png'.format(dist, n_deg), dpi=250)
 
-plt.figure(figsize=(7., 4.))
+plt.figure(figsize=(14., 7.5))
+plt.scatter(l_b_stars.l.value, l_b_stars.b.value, s=0.25, c='darkgrey', lw=0)
 plt.contour(ll, bb, red_img,
             np.arange(0, 1.1, 0.1),
             colors=['darkgreen'], linewidths=[0.25])
 plt.xlabel(u'Galactic longitude $l$ [$^{\circ}$]')
 plt.ylabel(u'Galactic latitude $b$ [$^{\circ}$]')
 plt.xlim(0, 360)
-plt.ylim(-90, 90)
+plt.ylim(-75, 75)
 plt.xticks([0, 45, 90, 135, 180, 225, 270, 315, 360])
 plt.yticks([-75, -50, -25, 0, 25, 50, 75])
 plt.grid(ls='--', color='black', alpha=0.2, lw=0.5)
 plt.tight_layout()
-plt.savefig('reddening_d{:04d}_n{:d}_cont.png'.format(dist, n_deg), dpi=250)
+plt.savefig('reddening_d{:04d}_n{:d}_cont_ws.png'.format(dist, n_deg), dpi=200)
