@@ -11,7 +11,7 @@ import os
 here = os.path.dirname(__file__)
 # use matplotlib without X server
 import matplotlib
-matplotlib.use('Agg')
+# matplotlib.use('Agg')
 
 import numpy as np
 import scipy.interpolate as spi

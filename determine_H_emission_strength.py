@@ -15,6 +15,7 @@ from astropy.modeling import models, fitting
 from sys import argv
 from getopt import getopt
 from copy import deepcopy
+from time import time
 
 SourceFileLoader('helper_functions', '../Carbon-Spectra/helper_functions.py').load_module()
 from helper_functions import move_to_dir, spectra_normalize
@@ -58,7 +59,7 @@ print('Reading GALAH parameters')
 date_string = '20190801'
 remove_spikes = False
 
-n_multi = 30
+n_multi = 45
 galah_data_dir = '/shared/ebla/cotar/'
 out_dir = '/shared/data-camelot/cotar/'
 
@@ -191,7 +192,7 @@ sobject_ids = general_data[idx_object_ok]['sobject_id']
 
 # move_to_dir(out_dir+'H_band_strength_all_'+date_string)
 # move_to_dir(out_dir+'H_band_strength_complete_'+date_string+'_BroadRange_191005')
-move_to_dir(out_dir+'H_band_strength_complete_'+date_string+'_ANN-medians')
+move_to_dir(out_dir+'H_band_strength_complete_'+date_string+'_ANN-medians_newthrs')
 
 # binary flag describing processing step where something went wrong or data are missing:
 # 10000000 or 128 = Missing median spectrum in ccd3 (red spectral range around H-alpha)
@@ -487,7 +488,7 @@ def sb2_ccf(s_obj, s_ref,
     # is peak centered?
     is_cent = True
     ccf_peak = ccf_x[np.argmax(ccf_y)]
-    if np.abs(ccf_peak) >= 3.:
+    if np.abs(ccf_peak) >= 5.:
         is_cent = False
 
     if verbose:
@@ -578,6 +579,7 @@ def emis_peak_width(s_obj, w_obj, peak_loc, w_peak,
 # --------------------------------------------------------
 def process_selected_id(s_id):
     print('\nWorking on object '+str(s_id))
+    t_s = time()
     # define flag parameter that will describe processing problem(s) in resulting table
     proc_flag = 0
 
@@ -607,14 +609,13 @@ def process_selected_id(s_id):
     spectra_object_c3 = renorm_by_ref(spectra_object_c3, spectra_median_c3, wvl_val_ccd3)
     spectra_object_c3_SII = renorm_by_ref(spectra_object_c3_SII, spectra_median_c3_SII, wvl_val_ccd3_SII)
 
-    # compute RMS or MSE between meadin and observed spectrum
+    # compute MSE between median and observed spectrum
     rms_c1 = (np.nanmedian((spectra_median_c1 - spectra_object_c1)**2))
     rms_c3 = (np.nanmedian((spectra_median_c3 - spectra_object_c3)**2))
     rms_c3_SII = (np.nanmedian((spectra_median_c3_SII - spectra_object_c3_SII)**2))
 
     # flag badly correlated spectra and median spectra
-    distance_thr = 0.004
-    if rms_c3 >= 0.001:
+    if rms_c3 >= 0.002:
         proc_flag += 0b00100000
     if rms_c1 >= 0.008:
         proc_flag += 0b00010000
@@ -646,7 +647,7 @@ def process_selected_id(s_id):
                                                            rv=object_parameters['rv_guess_shift'],
                                                            rv_bary=object_parameters['v_bary'], e_thr=e_sky_thr)
     # set sky emission warning quality flag if many sky line were detected to be present in the spectrum difference
-    if len(sky_present) >= 3 or len(sky_present_neg) >= 3:
+    if len(sky_present) >= 4 or len(sky_present_neg) >= 4:
         proc_flag += 0b00000100
 
     # compute cross-correlation function for both bands to identify possible SB2 object and wrong wavelength calibration
@@ -673,21 +674,21 @@ def process_selected_id(s_id):
     sii_EW = np.trapz(sii_fit, wvl_val_ccd3_SII)
 
     # integrate part of the spectrum representing H bands
-    Ha_EW, _, Ha_rv = integrate_ew_spectra(spectra_div_c3, wvl_val_ccd3,
-                                    offset=1., reutrn_maxpeak_rv=True, wvl_rv_ref=HALPHA_WVL,
+    Ha_EW, _, Ha_rv = integrate_ew_spectra(spectra_dif_c3, wvl_val_ccd3,
+                                    offset=0., reutrn_maxpeak_rv=True, wvl_rv_ref=HALPHA_WVL,
                                     wvl_range=[HALPHA_WVL - wvl_int_range, HALPHA_WVL + wvl_int_range])
-    Ha_EW_abs, Ha_EW_asym = integrate_ew_spectra(spectra_div_c3, wvl_val_ccd3,
-                                    absolute=True, offset=1.,
+    Ha_EW_abs, Ha_EW_asym = integrate_ew_spectra(spectra_dif_c3, wvl_val_ccd3,
+                                    absolute=True, offset=0.,
                                     wvl_range=[HALPHA_WVL - wvl_int_range, HALPHA_WVL + wvl_int_range])
-    Hb_EW, _, Hb_rv = integrate_ew_spectra(spectra_div_c1, wvl_val_ccd1,
-                                    offset=1., reutrn_maxpeak_rv=True, wvl_rv_ref=HBETA_WVL,
+    Hb_EW, _, Hb_rv = integrate_ew_spectra(spectra_dif_c1, wvl_val_ccd1,
+                                    offset=0., reutrn_maxpeak_rv=True, wvl_rv_ref=HBETA_WVL,
                                     wvl_range=[HBETA_WVL - wvl_int_range, HBETA_WVL + wvl_int_range])
-    Hb_EW_abs, Hb_EW_asym = integrate_ew_spectra(spectra_div_c1, wvl_val_ccd1,
-                                    absolute=True, offset=1.,
+    Hb_EW_abs, Hb_EW_asym = integrate_ew_spectra(spectra_dif_c1, wvl_val_ccd1,
+                                    absolute=True, offset=0.,
                                     wvl_range=[HBETA_WVL - wvl_int_range, HBETA_WVL + wvl_int_range])
 
     # determine peak width in velocity units
-    Ha_W10 = emis_peak_width(spectra_div_c3, wvl_val_ccd3, HALPHA_WVL, wvl_peak_range, at_perc=10.)
+    Ha_W10 = emis_peak_width(spectra_dif_c3, wvl_val_ccd3, HALPHA_WVL, wvl_peak_range, at_perc=10.)
 
     # add to results
     output_array = [s_id, Ha_EW, Hb_EW, Ha_EW_abs, Hb_EW_abs, Ha_rv, Hb_rv,
@@ -845,6 +846,9 @@ def process_selected_id(s_id):
         del fig
         del axs
 
+    t_e = time()
+    print(' Elapsed time {:.1f}s'.format(t_e - t_s))
+
     return output_array
 
 
@@ -910,13 +914,13 @@ if TEST_RUN:
     results.write(results_csv_out[:-3] + 'fits', overwrite=True)
 else:
 
-    # first half of the dataset
-    sobject_ids = sobject_ids[:330000]
-    out_fits_file = 'results_H_lines' + out_suffix + '_1.fits'
+    # # first half of the dataset
+    # sobject_ids = sobject_ids[:330000]
+    # out_fits_file = 'results_H_lines' + out_suffix + '_1.fits'
 
-    # # second half of the dataset
-    # sobject_ids = sobject_ids[330000:]
-    # out_fits_file = 'results_H_lines' + out_suffix + '_2.fits'
+    # second half of the dataset
+    sobject_ids = sobject_ids[330000:]
+    out_fits_file = 'results_H_lines' + out_suffix + '_2.fits'
 
     # multiprocessing - run in multiple subsets as this might reduce memory usage and clear saved astropy.fitting models
     n_subsets = 50

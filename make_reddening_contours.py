@@ -11,7 +11,9 @@ plt.rcParams['font.size'] = 15
 date_string = '20190801'
 galah_data_dir = '/shared/ebla/cotar/'
 out_dir = '/shared/data-camelot/cotar/'
+results_data_dir = out_dir + 'H_band_strength_complete_20190801_ANN-medians/'
 general_data = Table.read(galah_data_dir + 'sobject_iraf_53_reduced_'+date_string+'.fits')['sobject_id','ra','dec']
+emis_results = Table.read(results_data_dir + 'results_H_lines_complete.fits')
 
 ra_dec_stars = coord.ICRS(ra=general_data['ra']*un.deg, dec=general_data['dec']*un.deg)
 l_b_stars = ra_dec_stars.transform_to(coord.Galactic)
@@ -74,9 +76,18 @@ plt.ylabel(u'Galactic latitude $b$ [$^{\circ}$]')
 plt.colorbar()
 plt.tight_layout()
 plt.savefig('reddening_d{:04d}_n{:d}_map.png'.format(dist, n_deg), dpi=250)
+plt.close()
 
+idx_unf = emis_results['flag'] == 0
+idx_bin = np.logical_or(emis_results['SB2_c1'] >= 1, emis_results['SB2_c3'] >= 1)
+idx_bin_conf = np.logical_and(emis_results['SB2_c1'] >= 1, emis_results['SB2_c3'] >= 1)
+idx_neb = (emis_results['NII'] + emis_results['SII']) >= 3
+idx_neb_final = idx_unf * idx_neb * ~idx_bin
+sobj_nebular = emis_results[idx_neb_final]['sobject_id']
+idx_mark = np.in1d(general_data['sobject_id'], sobj_nebular)
 plt.figure(figsize=(14., 7.5))
 plt.scatter(l_b_stars.l.value, l_b_stars.b.value, s=0.25, c='darkgrey', lw=0)
+plt.scatter(l_b_stars.l.value[idx_mark], l_b_stars.b.value[idx_mark], s=0.6, c='black', lw=0)
 plt.contour(ll, bb, red_img,
             np.arange(0, 1.1, 0.1),
             colors=['darkgreen'], linewidths=[0.25])
@@ -88,4 +99,28 @@ plt.xticks([0, 45, 90, 135, 180, 225, 270, 315, 360])
 plt.yticks([-75, -50, -25, 0, 25, 50, 75])
 plt.grid(ls='--', color='black', alpha=0.2, lw=0.5)
 plt.tight_layout()
-plt.savefig('reddening_d{:04d}_n{:d}_cont_ws.png'.format(dist, n_deg), dpi=200)
+plt.savefig('reddening_d{:04d}_n{:d}_cont_wnebular.png'.format(dist, n_deg), dpi=200)
+plt.close()
+
+idx_emi = np.logical_and(emis_results['Ha_EW'] > 0.25, emis_results['Ha_EW_abs'] > 0.)
+idx_emiss_final = idx_emi * idx_unf * ~idx_bin_conf
+print()
+sobj_nebular = emis_results[idx_emiss_final]['sobject_id']
+idx_mark = np.in1d(general_data['sobject_id'], sobj_nebular)
+plt.figure(figsize=(14., 7.5))
+plt.scatter(l_b_stars.l.value, l_b_stars.b.value, s=0.25, c='darkgrey', lw=0)
+plt.scatter(l_b_stars.l.value[idx_mark], l_b_stars.b.value[idx_mark], s=0.6, c='black', lw=0)
+plt.contour(ll, bb, red_img,
+            np.arange(0, 1.1, 0.1),
+            colors=['darkgreen'], linewidths=[0.25])
+plt.xlabel(u'Galactic longitude $l$ [$^{\circ}$]')
+plt.ylabel(u'Galactic latitude $b$ [$^{\circ}$]')
+plt.xlim(0, 360)
+plt.ylim(-75, 75)
+plt.xticks([0, 45, 90, 135, 180, 225, 270, 315, 360])
+plt.yticks([-75, -50, -25, 0, 25, 50, 75])
+plt.grid(ls='--', color='black', alpha=0.2, lw=0.5)
+plt.tight_layout()
+plt.savefig('reddening_d{:04d}_n{:d}_cont_wemisions.png'.format(dist, n_deg), dpi=200)
+# plt.show()
+plt.close()

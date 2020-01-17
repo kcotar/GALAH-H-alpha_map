@@ -10,10 +10,11 @@ import astropy.units as un
 plt.rcParams['font.size'] = 15
 ANALYSE_REPEATS = False
 MAKE_PLOTS = True
+MOVE_ORDER_RESULT_PLOTS = False
 
 data_dir = '/shared/ebla/cotar/'
 # results_data_dir = '/shared/data-camelot/cotar/H_band_strength_all_20190801/'
-results_data_dir = '/shared/data-camelot/cotar/H_band_strength_complete_20190801_BroadRange_191005/'
+results_data_dir = '/shared/data-camelot/cotar/H_band_strength_complete_20190801_ANN-medians/'
 out_dir = results_data_dir
 
 print('Reading results')
@@ -21,6 +22,8 @@ res_hdet = vstack((Table.read(results_data_dir + 'results_H_lines_1.fits'),
                    Table.read(results_data_dir + 'results_H_lines_2.fits')))
 res_hdet = res_hdet[np.argsort(res_hdet['sobject_id'])]
 res_hdet.write(results_data_dir + 'results_H_lines_complete.fits', overwrite=True)
+# res_hdet = Table.read(results_data_dir + 'results_H_lines_complete.fits')
+
 res_hdet['sobject_id', 'SB2_c1', 'SB2_c3'].write(results_data_dir + 'results_H_lines_complete_Gregor.fits', overwrite=True)
 print(res_hdet)
 print('Results so far:', len(res_hdet))
@@ -33,14 +36,32 @@ print('Unique results:', len(res_hdet))
 # read and add additional GALAH data tables
 binary_candidates_gregor = Table.read(results_data_dir + 'galah_binary_all_candidates_radec.csv', format='ascii.csv')
 galah_all = Table.read(data_dir + 'sobject_iraf_53_reduced_20190801.fits')
+sme_all = Table.read(data_dir + 'GALAH_iDR3_main_191213.fits')
 oc_all = Table.read(data_dir + 'clusters/members_open_gaia_r2.fits')
 res_hdet = join(res_hdet, galah_all['sobject_id', 'ra', 'dec'], keys='sobject_id', join_type='left')
+res_hdet = join(res_hdet, sme_all['sobject_id', 'source_id', 'teff', 'logg', 'fe_h', 'flag_sp', 'rv_guess','parallax', 'pmra', 'pmdec'], keys='sobject_id', join_type='left')
+drew_tracks = Table.read(results_data_dir + 'Drew_2015_MS_tracks.csv', format='ascii.csv')
+
 # read IPHAS DR2 and VPHAS DR2 photometry values
-iphas = Table.read(data_dir + 'photometry/' + 'IPHAS_dr2_Barentsen_20190801_clean.csv', format='ascii.csv')['sobject_id', 'ha', 'haErr', 'r', 'rErr', 'i', 'iErr']
-vphas = Table.read(data_dir + 'photometry/' + 'VPHAS_dr2_Drew_20190801.csv', format='ascii.csv')['sobject_id', 'Hamag', 'e_Hamag', 'rmag', 'e_rmag', 'imag', 'e_imag']
-# add photometry tot he final table
-res_hdet = join(res_hdet, iphas, keys='sobject_id', join_type='left')
-res_hdet = join(res_hdet, vphas, keys='sobject_id', join_type='left')
+iphas_cols = ['sobject_id', 'ha', 'haErr', 'r', 'rErr', 'i', 'iErr']
+vphas_cols = ['sobject_id', 'Hamag', 'e_Hamag', 'rmag', 'e_rmag', 'imag', 'e_imag']
+iphas = unique(Table.read(data_dir + 'photometry/' + 'IPHAS_dr2_Barentsen_20190801_clean.csv', format='ascii.csv'), keys='sobject_id', keep='first')[iphas_cols]
+vphas = unique(Table.read(data_dir + 'photometry/' + 'VPHAS_dr2_Drew_20190801.csv', format='ascii.csv'), keys='sobject_id', keep='first')[vphas_cols]
+
+res_hdet = join(res_hdet, iphas,
+                keys='sobject_id', join_type='left')
+res_hdet = join(res_hdet, vphas,
+                keys='sobject_id', join_type='left')
+
+iphas_vphas_stack = vstack((iphas, vphas))
+for i_c in range(1, len(iphas_cols)):
+    iphas[iphas_cols[i_c]].name = vphas_cols[i_c]
+print('IPHAS stars: ', len(iphas))
+print('VPHAS stars: ', len(vphas))
+print('(I+V)PHAS stars: ', len(np.unique(iphas_vphas_stack['sobject_id'])))
+# # add photometry tot he final table
+# res_hdet = join(res_hdet, iphas_vphas_stack,
+#                 keys='sobject_id', join_type='left')
 
 print(' Flag stats:')
 vf, nf = np.unique(res_hdet['flag'], return_counts=True)
@@ -48,17 +69,53 @@ for ff in range(len(nf)):
     print('  {:.0f} => {:.0f}'.format(vf[ff], nf[ff]))
 
 res_all = res_hdet[res_hdet['flag'] == 0]
-print('Results unflagged:', len(res_hdet))
+print('Results unflagged:', len(res_all))
+
+d_rv_nii = 15
 
 # use flags to determine subsets
 idx_unf = res_hdet['flag'] == 0
 idx_bin = np.logical_or(res_hdet['SB2_c1'] >= 1, res_hdet['SB2_c3'] >= 1)
 idx_bin_conf = np.logical_and(res_hdet['SB2_c1'] >= 1, res_hdet['SB2_c3'] >= 1)
 idx_neb = (res_hdet['NII'] + res_hdet['SII']) >= 3
-idx_emi = np.logical_and(res_hdet['Ha_EW'] > 0.4, res_hdet['Ha_EW_abs'] > 0.5)  # EW thresholds for weak emissions, TODO
+idx_emi = np.logical_and(res_hdet['Ha_EW'] > 0.25, res_hdet['Ha_EW_abs'] > 0.)  # EW thresholds for weak emissions, TODO
+idx_emi2 = np.logical_and(res_hdet['Ha_EW'] > 0.2, res_hdet['Ha_EW_abs'] > 0.)
+idx_emi3 = np.logical_and(res_hdet['Ha_EW'] > 0.3, res_hdet['Ha_EW_abs'] > 0.)
+idx_emi4 = np.logical_and(res_hdet['Ha_EW'] > 0.4, res_hdet['Ha_EW_abs'] > 0.)
+idx_emi5 = np.logical_and(res_hdet['Ha_EW'] > 0.5, res_hdet['Ha_EW_abs'] > 0.)
+idx_emi6 = np.logical_and(res_hdet['Ha_EW'] > 0.6, res_hdet['Ha_EW_abs'] > 0.)
+idx_mark_niirv = np.abs(res_hdet['rv_NII'] - res_hdet['rv_SII']) > d_rv_nii
 idx_emi_strong = np.logical_and(res_hdet['Ha_EW'] > 0.8, res_hdet['Ha_EW_abs'] > 0.5)  # EW thresholds for the strongest
 idx_asym_h = np.sqrt(res_hdet['Ha_EW_asym']**2 + res_hdet['Hb_EW_asym']**2) > 0.3
+idx_sme_valid = res_hdet['flag_sp'] == 0
 
+res_hdet['emiss'] = 0
+res_hdet['nebular'] = 0
+res_hdet['emiss'][idx_emi * idx_unf * ~idx_bin] = 1
+res_hdet['nebular'][idx_neb * ~idx_mark_niirv] = 1
+
+print('Final emission stars:', np.sum(res_hdet['emiss']))
+print('Final nebular stars:', np.sum(res_hdet['nebular']))
+print('Final emission nebular union:', np.sum(res_hdet['emiss'] * res_hdet['nebular']))
+print('Final emission stars 0.2:', np.sum(idx_emi2 * idx_unf))
+print('Final emission stars 0.3:', np.sum(idx_emi3 * idx_unf))
+print('Final emission stars 0.4:', np.sum(idx_emi4 * idx_unf))
+print('Final emission stars 0.5:', np.sum(idx_emi5 * idx_unf))
+print('Final emission stars 0.6:', np.sum(idx_emi6 * idx_unf))
+print('Final nebular stars noflag:', np.sum(idx_neb))
+
+# export detection subsets
+res_hdet[idx_emi * idx_unf * ~idx_bin]['sobject_id', 'ra', 'dec', 'Ha_EW', 'rv_guess','parallax', 'pmra', 'pmdec'].write(results_data_dir + 'results_H_lines_emmis.fits', overwrite=True)
+res_hdet[idx_neb * idx_unf * ~idx_bin_conf]['sobject_id', 'ra', 'dec', 'rv_NII', 'rv_SII', 'rv_guess','parallax', 'pmra', 'pmdec'].write(results_data_dir + 'results_H_lines_nebul.fits', overwrite=True)
+
+# LaTeX data export
+res_latex = res_hdet[idx_emi * ~idx_bin * idx_unf]
+out_cols = ['source_id', 'Ha_EW', 'Ha_EW_abs', 'Ha_W10', 'Ha_EW_asym', 'NII', 'SII', 'NII_EW', 'rv_NII', 'rv_SII', 'flag']
+# out_formats = ['%.2f' for ic in range(len(out_cols))]
+out_formats = ['%.0f', '%.2f', '%.2f', '%.2f', '%.2f', '%.0f', '%.0f', '%.2f', '%.2f', '%.2f', '%.0f']
+res_latex[np.argsort(res_latex['Ha_EW'])[::-1]][:25][out_cols].write(out_dir + 'results_H_lines.tex',
+                                                                     format='ascii.latex', overwrite=True,
+                                                                     formats=dict(zip(out_cols, out_formats)))
 
 # ----------------------------------------
 # ------------ FUNCTIONS -----------------
@@ -114,7 +171,7 @@ if ANALYSE_REPEATS:
     ra_dec_all = coord.ICRS(ra=res_hdet['ra']*un.deg,
                             dec=res_hdet['dec']*un.deg)
     # use only the strongest detected emissions when dealing with repeated observations
-    idx_detected = idx_emi_strong * idx_unf * np.logical_not(idx_bin)
+    idx_detected = idx_emi5 * idx_unf * ~idx_bin
     res_hdet['id_rep'] = np.int32(0)
     id_rep = 1
 
@@ -164,14 +221,19 @@ if MAKE_PLOTS:
     # ----------------------------------------
 
     # determine data rows that will be used for production of plots
-    idx_plot = idx_neb * idx_unf * ~idx_bin_conf
+    idx_plot = idx_neb
     # make a plot
     fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
-    ax.plot((-150, 150), (-150, 150), lw=2, c='C2', alpha=0.75, ls='--')
-    ax.scatter(res_hdet['rv_NII'][idx_plot], res_hdet['rv_SII'][idx_plot], lw=0, s=6, c='black', alpha=0.5)
+    ax.plot((-200, 200), (-200, 200), lw=2, c='C2', alpha=0.8, ls='--')
+    ax.plot((-200, 200), (-200-d_rv_nii, 200-d_rv_nii), lw=2, c='C2', alpha=0.5, ls='--')
+    ax.plot((-200, 200), (-200+d_rv_nii, 200+d_rv_nii), lw=2, c='C2', alpha=0.5, ls='--')
+    ax.scatter(res_hdet['rv_NII'][idx_plot*~idx_mark_niirv], res_hdet['rv_SII'][idx_plot*~idx_mark_niirv],
+               lw=0, s=6, c='black', alpha=0.5)
+    ax.scatter(res_hdet['rv_NII'][idx_plot*idx_mark_niirv], res_hdet['rv_SII'][idx_plot*idx_mark_niirv],
+               lw=0, s=6, c='grey', alpha=0.5)
     ax.set(xlim=(-120, 120), ylim=(-120, 120),
-           xlabel='Radial velocity of [NII] lines',
-           ylabel='Radial velocity of [SII] lines')
+           xlabel='Measured radial velocity of the [NII] duplet',
+           ylabel='Measured radial velocity of the [SII] duplet')
     ax.grid(ls='--', alpha=0.25, c='black')
     fig.tight_layout()
     fig.savefig('sii_nii_rv.png', dpi=250)
@@ -181,17 +243,86 @@ if MAKE_PLOTS:
     res_hdet['sobject_id', 'ra', 'dec'][idx_plot].write(results_data_dir + 'results_H_lines_nebular-pos-only.fits', overwrite=True)
 
     # determine data rows that will be used for production of plots
-    idx_plot = idx_neb * idx_unf * ~idx_bin_conf
+    idx_plot = idx_emi * idx_unf * ~idx_bin * idx_sme_valid * ~idx_neb
+    xlims = [(3300, 8000), (0, 5), (-2.5, 1.0)]
+    for i_c, p_col in enumerate(['teff', 'logg', 'fe_h']):
+        # make a plot
+        fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
+        ax.plot((-1, 1), (-1, 1), lw=2, c='C2', alpha=0.75, ls='--')
+        ax.scatter(res_hdet[p_col][idx_plot], res_hdet['Ha_EW'][idx_plot], lw=0, s=6, c='black', alpha=0.5)
+        ax.set(xlim=xlims[i_c], ylim=(0.2, 2.8),
+               xlabel=r'T$_{eff}$ [K]',
+               ylabel=r'Equivalent width of the H$\alpha$ emission')
+        ax.grid(ls='--', alpha=0.25, c='black')
+        fig.tight_layout()
+        fig.savefig('haew_'+p_col+'_corr_without_neb.png', dpi=250)
+        plt.close(fig)
+
+    # determine data rows that will be used for production of plots
+    idx_plot = idx_emi * idx_unf * ~idx_bin
+    # make a plot
+    fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
+    # TODO: accretion separation line
+    ax.plot((0.15, 0.85), (0.2, 0.55), lw=2, c='C0', alpha=0.75, ls='-.', label='Threshold')
+    ax.plot(drew_tracks['ri0'], drew_tracks['rha0'],
+            lw=2, c='C2', alpha=0.75, ls='--', label='Main-sequence track')
+    ax.scatter((res_hdet['rmag'] - res_hdet['imag'])[idx_plot],
+               (res_hdet['rmag'] - res_hdet['Hamag'])[idx_plot],
+               lw=0, s=22, c='black', alpha=1., marker="v", label="VPHAS")
+    ax.scatter((res_hdet['r'] - res_hdet['i'])[idx_plot],
+               (res_hdet['r'] - res_hdet['ha'])[idx_plot],
+               lw=0, s=28, c='black', alpha=1., marker="X", label="IPHAS")
+    ax.set(xlim=(0.15, 1.2), ylim=(0.05, 0.55),
+           xlabel=r'Color index r - i',
+           ylabel=r'Color index r - H$\alpha$')
+    ax.grid(ls='--', alpha=0.25, c='black')
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig('mag_iphas_vphas_sep.png', dpi=250)
+    plt.close(fig)
+
+    # determine data rows that will be used for production of plots
+    idx_plot = idx_neb * ~idx_mark_niirv
     # make a plot
     fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
     ax.plot((-1, 1), (-1, 1), lw=2, c='C2', alpha=0.75, ls='--')
     ax.scatter(res_hdet['NII_EW'][idx_plot], res_hdet['SII_EW'][idx_plot], lw=0, s=6, c='black', alpha=0.5)
-    ax.set(xlim=(-0.05, 0.7), ylim=(-0.05, 0.55),
-           xlabel='Equivalent width of fitted [NII] lines',
-           ylabel='Equivalent width of fitted [SII] lines')
+    ax.set(xlim=(-0.01, 0.85), ylim=(-0.01, 0.7),
+           xlabel='Equivalent width of the fitted [NII] lines',
+           ylabel='Equivalent width of the fitted [SII] lines')
     ax.grid(ls='--', alpha=0.25, c='black')
     fig.tight_layout()
     fig.savefig('sii_nii_ew_corr.png', dpi=250)
+    plt.close(fig)
+
+    # determine data rows that will be used for production of plots
+    idx_plot = idx_neb * ~idx_mark_niirv
+    # make a plot
+    fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
+    ax.plot((-1, 1), (-1, 1), lw=2, c='C2', alpha=0.75, ls='--')
+    ax.plot((-1, 8), (-1/8, 1), lw=2, c='C2', alpha=0.75, ls='--')
+    ax.scatter(res_hdet['Ha_EW'][idx_plot], res_hdet['SII_EW'][idx_plot], lw=0, s=6, c='black', alpha=0.5)
+    ax.set(xlim=(-0.05, 3.5), ylim=(-0.01, 0.7),
+           xlabel=r'Equivalent width of H$\alpha$ emission',
+           ylabel='Equivalent width of the fitted [SII] lines')
+    ax.grid(ls='--', alpha=0.25, c='black')
+    fig.tight_layout()
+    fig.savefig('ha_nii_ew_corr.png', dpi=250)
+    plt.close(fig)
+
+    # determine data rows that will be used for production of plots
+    idx_plot = idx_neb * ~idx_mark_niirv
+    # make a plot
+    fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
+    ax.plot((-1, 1), (-1, 1), lw=2, c='C2', alpha=0.75, ls='--')
+    ax.plot((-1, 8), (-1/8, 1), lw=2, c='C2', alpha=0.75, ls='--')
+    ax.scatter(res_hdet['Ha_EW'][idx_plot], res_hdet['NII_EW'][idx_plot], lw=0, s=6, c='black', alpha=0.5)
+    ax.set(xlim=(-0.05, 3.5), ylim=(-0.01, 0.85),
+           xlabel=r'Equivalent width of H$\alpha$ emission',
+           ylabel='Equivalent width of the fitted [NII] lines')
+    ax.grid(ls='--', alpha=0.25, c='black')
+    fig.tight_layout()
+    fig.savefig('ha_sii_ew_corr.png', dpi=250)
     plt.close(fig)
 
     # determine data rows that will be used for production of plots
@@ -199,13 +330,47 @@ if MAKE_PLOTS:
     # make a plot
     fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
     ax.plot((-1, 5), (-1, 5), lw=2, c='C2', alpha=0.75, ls='--')
-    ax.scatter(res_hdet['Ha_EW'][idx_plot], res_hdet['Hb_EW'][idx_plot], lw=0, s=2, c='black', alpha=0.33)
+    f = 2.
+    ax.plot((-1, 5), (-1/f, 5/f), lw=2, c='C1', alpha=0.75, ls='-.')
+    ax.scatter(res_hdet['Ha_EW'][idx_plot], res_hdet['Hb_EW'][idx_plot], lw=0, s=4, c='black', alpha=0.33)
     ax.set(xlim=(-0.05, 3.5), ylim=(-0.7, 3),
-           xlabel=r'Equivalent width of H$\alpha$ emission',
-           ylabel=r'Equivalent width of H$\beta$ emission')
+           xlabel=r'Equivalent width of the H$\alpha$ emission',
+           ylabel=r'Equivalent width of the H$\beta$ emission')
     ax.grid(ls='--', alpha=0.25, c='black')
     fig.tight_layout()
     fig.savefig('H_emission_EW_dist.png', dpi=250)
+    plt.close(fig)
+
+    # determine data rows that will be used for production of plots
+    idx_plot1 = idx_emi * idx_unf * ~idx_bin
+    idx_plot2 = ~idx_emi * idx_unf * ~idx_bin
+    # make a plot
+    fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
+    ax.plot((-1, 5), (-1, 5), lw=2, c='C2', alpha=0.75, ls='--')
+    f = 2.
+    ax.plot((-1, 5), (-1/f, 5/f), lw=2, c='C1', alpha=0.75, ls='-.')
+    ax.scatter(res_hdet['Ha_EW'][idx_plot1], res_hdet['Hb_EW'][idx_plot1], lw=0, s=4, c='black', alpha=0.33)
+    ax.scatter(res_hdet['Ha_EW'][idx_plot2], res_hdet['Hb_EW'][idx_plot2], lw=0, s=4, c='grey', alpha=0.33)
+    ax.set(xlim=(-0.05, 3.5), ylim=(-0.7, 3),
+           xlabel=r'Equivalent width of the H$\alpha$ emission',
+           ylabel=r'Equivalent width of the H$\beta$ emission')
+    ax.grid(ls='--', alpha=0.25, c='black')
+    fig.tight_layout()
+    fig.savefig('H_emission_EW_dist_all.png', dpi=250)
+    plt.close(fig)
+
+    # determine data rows that will be used for production of plots
+    idx_plot = idx_emi * idx_unf * ~idx_bin
+    # make a plot
+    fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
+    ax.plot((-1, 5), (-1, 5), lw=2, c='C2', alpha=0.75, ls='--')
+    ax.scatter(res_hdet['Ha_EW'][idx_plot], res_hdet['Ha_W10'][idx_plot], lw=0, s=4, c='black', alpha=0.33)
+    ax.set(xlim=(-0.05, 4), ylim=(-0., 400),
+           xlabel=r'Equivalent width of the H$\alpha$ emission',
+           ylabel=r'H$\alpha$ 10%')
+    ax.grid(ls='--', alpha=0.25, c='black')
+    fig.tight_layout()
+    fig.savefig('H_emission_H10_dist.png', dpi=250)
     plt.close(fig)
 
     # determine data rows that will be used for production of plots
@@ -213,12 +378,12 @@ if MAKE_PLOTS:
     # make a plot
     fig, ax = plt.subplots(1, 1, figsize=(7, 6.5))
 
-    ax.scatter(res_hdet['Ha_EW_asym'][idx_plot], res_hdet['Hb_EW_asym'][idx_plot], lw=0, s=3, c='black', alpha=0.33)
+    ax.scatter(res_hdet['Ha_EW_asym'][idx_plot], res_hdet['Hb_EW_asym'][idx_plot], lw=0, s=5, c='black', alpha=0.5)
     ax.set(xlim=(-1, 1), ylim=(-1, 1),
            xlabel=r'Asymmetry index of H$\alpha$ emission',
            ylabel=r'Asymmetry index of H$\beta$ emission')
     ax.grid(ls='--', alpha=0.25, c='black')
-    circle = mpatches.Circle((0.0, 0.0), radius=0.3, alpha=1., fill=False,
+    circle = mpatches.Circle((0.0, 0.0), radius=0.25, alpha=1., fill=False,
                              lw=2.5, ls='--', color='C2')
     ax.add_patch(circle)
     fig.tight_layout()
@@ -251,8 +416,10 @@ if MAKE_PLOTS:
     fig.savefig('Hb_emission_asymmetry_strength.png', dpi=250)
     plt.close(fig)
 
+if not MOVE_ORDER_RESULT_PLOTS:
+    raise SystemExit
 
-n_random_det = 300
+n_random_det = 400
 # ----------------------------------------
 # Spectra with possible crosstalk signal present in the red spectral arm
 # ----------------------------------------
@@ -304,7 +471,8 @@ copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'flag_wvlred/')
 # ----------------------------------------
 # sample of nebular emissions
 # ----------------------------------------
-res = res_all[(res_all['NII'] + res_all['SII']) >= 3]
+res = res_hdet[(res_hdet['NII'] + res_hdet['SII']) >= 3]
+res = res[res['rv_NII'] - res['rv_SII'] <= d_rv_nii]
 print('N nebulous:', len(res))
 idx_sel = np.int64(np.random.uniform(0, len(res), n_random_det))
 copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'nebular/')

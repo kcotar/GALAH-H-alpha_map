@@ -15,8 +15,11 @@ plt.rcParams['font.size'] = 15
 galah_data_dir = '/shared/ebla/cotar/'
 out_dir = '/shared/data-camelot/cotar/'
 
-PLOT_LOSS = True
-PLOT_SPECTRA = False
+date_string = '20190801'
+general_data = Table.read(galah_data_dir + 'sobject_iraf_53_reduced_'+date_string+'.fits')
+
+PLOT_LOSS = False
+PLOT_SPECTRA = True
 
 HBETA_WVL = 4861.3615
 HALPHA_WVL = 6562.8518
@@ -51,14 +54,14 @@ if PLOT_LOSS:
 # plot median ANN and observed spectra
 if PLOT_SPECTRA:
     print('plotting selected spectra')
-    ccd = 1
+    ccd = 3
     spec_pkl = ['galah_dr53_ccd1_4710_4910_wvlstep_0.040_ext4_20190801.pkl',
                 '',
                 'galah_dr53_ccd3_6475_6745_wvlstep_0.060_ext4_20190801.pkl',
                 ''][ccd - 1]
     ann_pkl = spec_pkl[:-4] + '_ann_median.pkl'
-    plot_wvl = [HBETA_WVL, 0, HALPHA_WVL, 0][ccd -1]
-    wvl_plot_span = [20, 25, 30, 35][ccd -1]
+    plot_wvl = [HBETA_WVL, 0, HALPHA_WVL, 0][ccd - 1]
+    wvl_plot_span = [20, 25, 30, 35][ccd - 1]
 
     print(' read 1')
     obs_spec = read_pkl_spectra(out_dir + spec_pkl)
@@ -66,6 +69,28 @@ if PLOT_SPECTRA:
     ann_spec = read_pkl_spectra(out_dir + ann_pkl)
     print(' read done')
     wvl_spec = CollectionParameters(spec_pkl).get_wvl_values()
+
+    # plotting repeats spectra
+    plot_s_ids = [[140308000101142, 161213002601381, 161219002101381, 171206002101381, 171207002101381],
+                  [161209001801307, 170904002101301, 171206002601307],
+                  [150427002801012, 150427004801012, 150606003901012],
+                  [151230002201218, 171206004101218, 171208003601218],]
+
+    fig, ax = plt.subplots(1, len(plot_s_ids), figsize=(14., 5), sharey=True)
+    for i_ax, s_ids in enumerate(plot_s_ids):
+        for s_id in s_ids:
+            s_id = np.where(general_data['sobject_id'] == s_id)[0][0]
+            ax[i_ax].plot(wvl_spec, obs_spec[s_id, :], lw=0.8, alpha=0.75, label='Observed')
+            ax[i_ax].set(xlim=(plot_wvl - wvl_plot_span/3, plot_wvl + wvl_plot_span/3))
+            # if np.floor(len(plot_ids)/2.) - 1 == i_ax:
+            #     ax[i_ax].set(xlabel=u'Wavelength [$\AA$]')
+        ax[i_ax].grid(ls='--', lw=0.4, alpha=0.2, color='black')
+    ax[0].set(ylim=(0.4, 1.2), ylabel='Normalised flux')
+    fig.text(0.5, 0.02, u'Wavelength [$\AA$]', ha='center')
+    fig.tight_layout()
+    fig.subplots_adjust(hspace=0, wspace=0, bottom=0.12)
+    fig.savefig('repetas_spectra_spectra_ccd' + str(ccd) + '.pdf')
+    plt.close(fig)
 
     # which spectra are to be plotted
     plot_ids = [248872, 50588, 67497, 141778]
@@ -82,6 +107,6 @@ if PLOT_SPECTRA:
     ax[-1].legend()
     fig.text(0.5, 0.02, u'Wavelength [$\AA$]', ha='center')
     fig.tight_layout()
-    fig.subplots_adjust(hspace=0, wspace=0, bottom=0.1)
+    fig.subplots_adjust(hspace=0, wspace=0, bottom=0.12)
     fig.savefig('sample_spectra_spectra_ccd'+str(ccd)+'.pdf')
     plt.close(fig)
