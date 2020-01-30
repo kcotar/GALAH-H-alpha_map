@@ -1,4 +1,4 @@
-from os import system, chdir, path
+from os import system, chdir, path, listdir
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
@@ -14,7 +14,7 @@ MOVE_ORDER_RESULT_PLOTS = False
 
 data_dir = '/shared/ebla/cotar/'
 # results_data_dir = '/shared/data-camelot/cotar/H_band_strength_all_20190801/'
-results_data_dir = '/shared/data-camelot/cotar/H_band_strength_complete_20190801_ANN-medians/'
+results_data_dir = '/shared/data-camelot/cotar/H_band_strength_complete_20190801_ANN-medians_newthrs/'
 out_dir = results_data_dir
 
 print('Reading results')
@@ -25,7 +25,7 @@ res_hdet.write(results_data_dir + 'results_H_lines_complete.fits', overwrite=Tru
 # res_hdet = Table.read(results_data_dir + 'results_H_lines_complete.fits')
 
 res_hdet['sobject_id', 'SB2_c1', 'SB2_c3'].write(results_data_dir + 'results_H_lines_complete_Gregor.fits', overwrite=True)
-print(res_hdet)
+# print(res_hdet)
 print('Results so far:', len(res_hdet))
 # s_u, c_u = np.unique(res_all['sobject_id'], return_counts=True)
 # for get_s_u in s_u[c_u >= 2][:10]:
@@ -167,6 +167,7 @@ print('Unique:', np.sum(idx_show_ids))
 # - repeats could be from different programs than the GALAH -> (TESS, K2, clusters, pilot, Orion ...), therefore
 #   repeats detection is based on logged coordinates of the spectrum
 # ----------------------------------------
+rep_fits = 'results_H_lines_complete_with-rep.fits'
 if ANALYSE_REPEATS:
     ra_dec_all = coord.ICRS(ra=res_hdet['ra']*un.deg,
                             dec=res_hdet['dec']*un.deg)
@@ -209,7 +210,33 @@ if ANALYSE_REPEATS:
 
     chdir('..')
     # save results
-    res_hdet.write(results_data_dir + 'results_H_lines_complete_with-rep.fits', overwrite=True)
+    res_hdet.write(results_data_dir + rep_fits, overwrite=True)
+
+if path.isfile(out_dir + rep_fits):
+    rep_data = Table.read(out_dir + rep_fits)
+
+    def rep_stat_print(uniq_id, uniq_c):
+        for n_rep in np.unique(uniq_c):
+            print(' rep', n_rep, 'count:', np.sum(uniq_c == n_rep))
+        return True
+
+    # repeats stats
+    print('Repeats all data:')
+    u_id1, u_c1 = np.unique(rep_data['id_rep'], return_counts=True)
+    rep_stat_print(u_id1, u_c1)
+
+    idx_detected = idx_emi5 * idx_unf * ~idx_bin
+    print('Repeats with at least one detection:')
+    u_id2, u_c2 = np.unique(rep_data['id_rep'][idx_detected], return_counts=True)
+    idx_print = np.in1d(u_id1, u_id2)
+    rep_stat_print(u_id1[idx_print], u_c1[idx_print])
+
+    print('Variability modes')
+    all_rep_dirs = listdir(out_dir + 'repeats/')
+    rep_mode = [ff.split('_')[1] for ff in all_rep_dirs]
+    u_id3, u_c3 = np.unique(rep_mode, return_counts=True)
+    for iu in range(len(u_id3)):
+        print(' rep', u_id3[iu], 'count', u_c3[iu], 'perc', 100.*u_c3[iu]/np.sum(u_c3))
 
 if MAKE_PLOTS:
     rep_dir = out_dir + 'pretty_plots/'
@@ -419,7 +446,7 @@ if MAKE_PLOTS:
 if not MOVE_ORDER_RESULT_PLOTS:
     raise SystemExit
 
-n_random_det = 400
+n_random_det = 450
 # ----------------------------------------
 # Spectra with possible crosstalk signal present in the red spectral arm
 # ----------------------------------------
@@ -477,18 +504,6 @@ print('N nebulous:', len(res))
 idx_sel = np.int64(np.random.uniform(0, len(res), n_random_det))
 copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'nebular/')
 
-plot_stars = galah_all[np.in1d(galah_all['sobject_id'], res['sobject_id'])]
-plt.scatter(galah_all['ra'], galah_all['dec'], lw=0, s=0.5, c='0.8',)
-plt.scatter(plot_stars['ra'], plot_stars['dec'], lw=0, s=0.5, c='black')
-plt.xlim(0., 360.)
-plt.ylim(-90., 90.)
-plt.grid(ls='--', alpha=0.2, color='black')
-plt.tight_layout()
-# plt.show()
-plt.savefig('ra_dec_plot_nebular.png', dpi=450)
-plt.close()
-res = None
-
 # ----------------------------------------
 # sample of sb2 stars
 # ----------------------------------------
@@ -499,7 +514,7 @@ print('N SB2:', len(res))
 idx_sel = np.int64(np.random.uniform(0, len(res), n_random_det))
 copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'SB2/')
 
-n_random_det = 500
+n_random_det = 600
 # ----------------------------------------
 # sample of stars with asymmetric emission line - based on computed EW
 # ----------------------------------------
@@ -512,7 +527,7 @@ copy_ids_to_curr_map(res['sobject_id'][idx_sel], out_dir + 'asym/',
                      prefixes=['{:.3f}'.format(p_val) for p_val in res['Ha_EW'][idx_sel]],
                      suffixes=['{:.3f}'.format(p_val) for p_val in res['Ha_EW_abs'][idx_sel]])
 
-n_best = 1000
+n_best = 1250
 # ----------------------------------------,
 # sort by strongest H-alpha emission spectrum
 # ----------------------------------------
