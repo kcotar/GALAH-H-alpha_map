@@ -37,9 +37,11 @@ print('Unique results:', len(res_hdet))
 binary_candidates_gregor = Table.read(results_data_dir + 'galah_binary_all_candidates_radec.csv', format='ascii.csv')
 galah_all = Table.read(data_dir + 'sobject_iraf_53_reduced_20190801.fits')
 sme_all = Table.read(data_dir + 'GALAH_iDR3_main_191213.fits')
+gaiadr2_xmatch = unique(Table.read(data_dir + 'sobject_iraf_53_reduced_20190801_po_gaiadr2.csv'), keep='first', keys='sobject_id')
 oc_all = Table.read(data_dir + 'clusters/members_open_gaia_r2.fits')
-res_hdet = join(res_hdet, galah_all['sobject_id', 'ra', 'dec'], keys='sobject_id', join_type='left')
-res_hdet = join(res_hdet, sme_all['sobject_id', 'source_id', 'teff', 'logg', 'fe_h', 'flag_sp', 'rv_guess','parallax', 'pmra', 'pmdec'], keys='sobject_id', join_type='left')
+res_hdet = join(res_hdet, galah_all['sobject_id', 'ra', 'dec', 'rv_guess_shift'], keys='sobject_id', join_type='left')
+res_hdet = join(res_hdet, sme_all['sobject_id', 'teff', 'logg', 'fe_h', 'flag_sp', 'rv_guess','parallax', 'pmra', 'pmdec'], keys='sobject_id', join_type='left')
+res_hdet = join(res_hdet, gaiadr2_xmatch['sobject_id', 'source_id'], keys='sobject_id', join_type='left')
 drew_tracks = Table.read(results_data_dir + 'Drew_2015_MS_tracks.csv', format='ascii.csv')
 
 # read IPHAS DR2 and VPHAS DR2 photometry values
@@ -67,6 +69,11 @@ print(' Flag stats:')
 vf, nf = np.unique(res_hdet['flag'], return_counts=True)
 for ff in range(len(nf)):
     print('  {:.0f} => {:.0f}'.format(vf[ff], nf[ff]))
+
+print(' Flag stats 2:')
+vf, nf = np.unique(res_hdet['flag'], return_counts=True)
+for ff in range(10):
+    print('  {:.0f} => {:.0f}'.format(2**ff, np.sum(np.bitwise_and(res_hdet['flag'], 2**ff) == 2**ff)))
 
 res_all = res_hdet[res_hdet['flag'] == 0]
 print('Results unflagged:', len(res_all))
@@ -103,19 +110,6 @@ print('Final emission stars 0.4:', np.sum(idx_emi4 * idx_unf))
 print('Final emission stars 0.5:', np.sum(idx_emi5 * idx_unf))
 print('Final emission stars 0.6:', np.sum(idx_emi6 * idx_unf))
 print('Final nebular stars noflag:', np.sum(idx_neb))
-
-# export detection subsets
-res_hdet[idx_emi * idx_unf * ~idx_bin]['sobject_id', 'ra', 'dec', 'Ha_EW', 'rv_guess','parallax', 'pmra', 'pmdec'].write(results_data_dir + 'results_H_lines_emmis.fits', overwrite=True)
-res_hdet[idx_neb * idx_unf * ~idx_bin_conf]['sobject_id', 'ra', 'dec', 'rv_NII', 'rv_SII', 'rv_guess','parallax', 'pmra', 'pmdec'].write(results_data_dir + 'results_H_lines_nebul.fits', overwrite=True)
-
-# LaTeX data export
-res_latex = res_hdet[idx_emi * ~idx_bin * idx_unf]
-out_cols = ['source_id', 'Ha_EW', 'Ha_EW_abs', 'Ha_W10', 'Ha_EW_asym', 'NII', 'SII', 'NII_EW', 'rv_NII', 'rv_SII', 'flag']
-# out_formats = ['%.2f' for ic in range(len(out_cols))]
-out_formats = ['%.0f', '%.2f', '%.2f', '%.2f', '%.2f', '%.0f', '%.0f', '%.2f', '%.2f', '%.2f', '%.0f']
-res_latex[np.argsort(res_latex['Ha_EW'])[::-1]][:25][out_cols].write(out_dir + 'results_H_lines.tex',
-                                                                     format='ascii.latex', overwrite=True,
-                                                                     formats=dict(zip(out_cols, out_formats)))
 
 # ----------------------------------------
 # ------------ FUNCTIONS -----------------
@@ -251,7 +245,7 @@ if MAKE_PLOTS:
     idx_plot = idx_neb
     # make a plot
     fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
-    ax.plot((-200, 200), (-200, 200), lw=2, c='C2', alpha=0.8, ls='--')
+    ax.plot((-200, 200), (-200, 200), lw=2, c='C2', alpha=0.8, ls='-')
     ax.plot((-200, 200), (-200-d_rv_nii, 200-d_rv_nii), lw=2, c='C2', alpha=0.5, ls='--')
     ax.plot((-200, 200), (-200+d_rv_nii, 200+d_rv_nii), lw=2, c='C2', alpha=0.5, ls='--')
     ax.scatter(res_hdet['rv_NII'][idx_plot*~idx_mark_niirv], res_hdet['rv_SII'][idx_plot*~idx_mark_niirv],
@@ -259,8 +253,8 @@ if MAKE_PLOTS:
     ax.scatter(res_hdet['rv_NII'][idx_plot*idx_mark_niirv], res_hdet['rv_SII'][idx_plot*idx_mark_niirv],
                lw=0, s=6, c='grey', alpha=0.5)
     ax.set(xlim=(-120, 120), ylim=(-120, 120),
-           xlabel='Measured radial velocity of the [NII] duplet',
-           ylabel='Measured radial velocity of the [SII] duplet')
+           xlabel='Measured radial velocity of the [NII] doublet',
+           ylabel='Measured radial velocity of the [SII] doublet')
     ax.grid(ls='--', alpha=0.25, c='black')
     fig.tight_layout()
     fig.savefig('sii_nii_rv.png', dpi=250)
@@ -442,6 +436,26 @@ if MAKE_PLOTS:
     fig.tight_layout()
     fig.savefig('Hb_emission_asymmetry_strength.png', dpi=250)
     plt.close(fig)
+
+### Final published electronic and latex tables
+res_hdet['rv_NII'] -= res_hdet['rv_guess_shift']
+res_hdet['rv_SII'] -= res_hdet['rv_guess_shift']
+# export all data with relevant columns
+final_published_res = res_hdet['source_id', 'sobject_id', 'ra', 'dec', 'Ha_EW', 'Hb_EW', 'Ha_EW_abs', 'Hb_EW_abs', 'Ha_W10', 'SB2_c3', 'SB2_c1', 'NII', 'SII', 'NII_EW', 'rv_NII', 'rv_SII', 'nebular', 'emiss', 'flag']
+final_published_res.write(results_data_dir + 'results_emission_lines_final.fits', overwrite=True, format='fits')
+final_published_res.write(results_data_dir + 'results_emission_lines_final.csv', overwrite=True, format='ascii.csv')
+# export detection subsets
+res_hdet[idx_emi * idx_unf * ~idx_bin]['sobject_id', 'ra', 'dec', 'Ha_EW', 'rv_guess','parallax', 'pmra', 'pmdec'].write(results_data_dir + 'results_H_lines_emmis.fits', overwrite=True)
+res_hdet[idx_neb * idx_unf * ~idx_bin_conf]['sobject_id', 'ra', 'dec', 'rv_NII', 'rv_SII', 'rv_guess','parallax', 'pmra', 'pmdec'].write(results_data_dir + 'results_H_lines_nebul.fits', overwrite=True)
+
+# LaTeX data export
+res_latex = res_hdet[idx_emi * ~idx_bin * idx_unf]
+out_cols = ['source_id', 'Ha_EW', 'Ha_EW_abs', 'Ha_W10', 'Ha_EW_asym', 'NII', 'SII', 'NII_EW', 'rv_NII', 'rv_SII', 'flag']
+# out_formats = ['%.2f' for ic in range(len(out_cols))]
+out_formats = ['%.0f', '%.2f', '%.2f', '%.2f', '%.2f', '%.0f', '%.0f', '%.2f', '%.2f', '%.2f', '%.0f']
+res_latex[np.argsort(res_latex['Ha_EW'])[::-1]][:30][out_cols].write(out_dir + 'results_H_lines.tex',
+                                                                     format='ascii.latex', overwrite=True,
+                                                                     formats=dict(zip(out_cols, out_formats)))
 
 if not MOVE_ORDER_RESULT_PLOTS:
     raise SystemExit

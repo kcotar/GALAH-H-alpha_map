@@ -1,6 +1,5 @@
 import matplotlib as mpl
 mpl.use('Agg')
-mpl.rcParams['font.size'] = 14
 
 from os import chdir
 from importlib.machinery import SourceFileLoader
@@ -24,8 +23,11 @@ from s_collection import CollectionParameters, read_pkl_spectra, save_pkl_spectr
 
 from multiprocessing import Pool
 
+plt.rcParams['font.size'] = 15
+
 VERBOSE = False
 PLOT_FIG = False
+PLOT_FIG_PAPER = True
 TEST_RUN = False
 if len(argv) > 1:
     # parse input options
@@ -506,7 +508,7 @@ def sb2_ccf(s_obj, s_ref,
     del e_fit
     del fit_res
 
-    return is_sb2, is_cent, [ccf_x, ccf_y, fit_res_y, ccf_peak, ccf_peaks]
+    return is_sb2, is_cent, [ccf_x, ccf_y, fit_res_y, ccf_peak, ccf_peaks, ccf_peaks_valid]
 
 
 def determine_sky_emission_strength(s_obj, w_obj, linelist,
@@ -705,6 +707,126 @@ def process_selected_id(s_id):
     suffix = ''  #
     # print(' Plotting results'
 
+    # plot rendered for the use in published scientific paper
+    if PLOT_FIG_PAPER and TEST_RUN:
+        fig, ax = plt.subplots(2, 1, figsize=(7, 8))
+
+        # h-alpha/nii plots
+        ax[0].plot(wvl_val_ccd3, spectra_dif_c3, color='black', linewidth=0.5)
+        ax[0].set(xlim=(HALPHA_WVL - wvl_plot_range_s, HALPHA_WVL + wvl_plot_range_s), ylim=(-0.3, 0.8),
+                  ylabel='Flux difference',
+                  # xlabel='Valid [NII] lines = {:.0f}'.format(nii_det),
+                  # xlabel=r'Wavelength [$\AA$]',
+                  )
+        ax[0].axhline(0., c='C0', alpha=0.75)
+        ax[0].axvline(HALPHA_WVL, c='black', alpha=0.5, ls='--')
+        ax[0].axvline(HALPHA_WVL - wvl_int_range, c='black', alpha=0.6, ls='--')
+        ax[0].axvline(HALPHA_WVL + wvl_int_range, c='black', alpha=0.6, ls='--')
+        for nii_w in NII_bands:
+            ax[0].axvline(nii_w, color='C2', alpha=0.7, ls='-.')
+        ax[0].plot(wvl_val_ccd3, nii_fit, color='C3', linewidth=0.6)
+        for nii_w in nii_peaks:
+            ax[0].axvline(nii_w, color='C3', alpha=0.8, ls='--')
+
+        # [SII] plots
+        ax[1].plot(wvl_val_ccd3_SII, spectra_dif_c3_SII, color='black', linewidth=0.5)
+        ax[1].set(xlim=(SII_WVL - 2. * wvl_plot_range_z, SII_WVL + 2. * wvl_plot_range_z), ylim=(-0.3, 0.8),
+                  ylabel='Flux difference',
+                  # xlabel='Valid [SII] lines = {:.0f}'.format(sii_det),
+                  xlabel=r'Wavelength [$\AA$]',
+                  xticks=[6715, 6720, 6725, 6730],
+                  )
+        ax[1].axhline(0., c='C0', alpha=0.75)
+        for sii_w in SII_bands:
+            ax[1].axvline(sii_w, color='C2', alpha=0.7, ls='-.')
+        ax[1].plot(wvl_val_ccd3_SII, sii_fit, color='C3', linewidth=0.6)
+        for sii_w in sii_peaks:
+            ax[1].axvline(sii_w, color='C3', alpha=0.8, ls='--')
+
+        # add grid lines to every plot available
+        ax[0].grid(color='black', alpha=0.2, ls='--')
+        ax[1].grid(color='black', alpha=0.2, ls='--')
+
+        # align subplots labels and axes
+        fig.align_xlabels()
+        fig.align_ylabels()
+        plt.tight_layout()
+        plt.savefig('tests/paper_'+str(s_id)+suffix+'_1.pdf')
+        plt.close()
+
+        fig, ax = plt.subplots(1, 1, figsize=(7, 5.5))
+
+        # visualize position and detected sky lines
+        ax.plot(wvl_val_ccd3, spectra_dif_c3, color='black', linewidth=0.6)
+        ax.set(xlim=(HALPHA_WVL - wvl_plot_range_s, HALPHA_WVL + wvl_plot_range_s), ylim=(-0.2, 0.2),
+               ylabel='Flux difference',
+               title='Detected residual sky lines = {:.0f}, {:.0f}'.format(len(sky_present), len(sky_present_neg)),
+               xlabel=r'Wavelength [$\AA$]',
+               yticks=[-0.2, -0.1, 0., 0.1, 0.2])
+        # add thresholding value for detection of emission peaks
+        ax.axhline(e_sky_thr, color='black', alpha=0.6, ls='--')
+        ax.axhline(-1. * e_sky_thr, color='black', alpha=0.6, ls='--')
+        for e_sky in sky_all:  # visualize all sky lines and their transformed wvl position
+            ax.axvline(e_sky, color='C2', alpha=0.75, linewidth=1.5, ls='--')
+        ax.grid(color='black', alpha=0.2, ls='--')
+
+        plt.tight_layout()
+        plt.savefig('tests/paper_'+str(s_id)+suffix+'_2.pdf')
+        plt.close()
+
+        fig, ax = plt.subplots(2, 1, figsize=(7, 8))
+
+        # analysis plots - CCF, fits, flags ...
+        # [ccf_x, ccf_y, , ccf_peak, ccf_peaks]
+        ax[0].plot(ccf_res_c3[0], ccf_res_c3[1],
+                       color='black', linewidth=0.6, label=r'CCF H$\alpha$')
+        ax[0].plot(ccf_res_c3[0], ccf_res_c3[2],
+                       color='C3', linewidth=0.6, label='CCF fit')
+        ax[0].legend()
+        ax[1].plot(ccf_res_c1[0], ccf_res_c1[1],
+                       color='black', linewidth=0.6, label=r'CCF H$\beta$')
+        ax[1].plot(ccf_res_c1[0], ccf_res_c1[2],
+                       color='C3', linewidth=0.6, label='CCF fit')
+        ax[1].legend()
+        # add peaks
+        if wvl_c3:
+            ax[0].axvline(ccf_res_c3[3], color='C2', alpha=0.8, ls='-')
+        else:
+            ax[0].axvline(ccf_res_c3[3], color='C3', alpha=0.8, ls='-')
+        if wvl_c1:
+            ax[1].axvline(ccf_res_c1[3], color='C2', alpha=0.8, ls='-')
+        else:
+            ax[1].axvline(ccf_res_c1[3], color='C3', alpha=0.8, ls='-')
+        # add gaussian peaks
+        for c_p in ccf_res_c3[4]:
+            ax[0].axvline(c_p, color='black', alpha=0.8, ls='--')
+        for c_p in ccf_res_c1[4]:
+            ax[1].axvline(c_p, color='black', alpha=0.8, ls='--')
+
+        plot_w = 125
+        if np.isfinite(ccf_res_c3[1]).all():
+            ax[0].set(xlim=(-plot_w, plot_w),
+                      ylabel='CCF value',
+                      title='Detected CCF peaks = {:.0f}, {:.0f}'.format(len(ccf_res_c3[5]), len(ccf_res_c1[5])),
+                      # xlabel='Pixel shifts - is SB2? = ' + str(int(sb2_c3)),
+                      ylim=(-0.2, 1.6),
+                      yticks=[0., 0.5, 1., 1.5])
+        if np.isfinite(ccf_res_c1[1]).all():
+            ax[1].set(xlim=(-plot_w, plot_w),
+                      ylabel='CCF value',
+                      # xlabel='Pixel shifts - is SB2? = ' + str(int(sb2_c1)),
+                      xlabel='Cross-corelation pixel shift',
+                      ylim=(-0.2, 1.6),
+                      yticks=[0., 0.5, 1., 1.5])
+
+        ax[0].grid(color='black', alpha=0.2, ls='--')
+        ax[1].grid(color='black', alpha=0.2, ls='--')
+
+        plt.tight_layout()
+        plt.savefig('tests/paper_'+str(s_id)+suffix+'_3.pdf')
+        plt.close()
+
+
     if PLOT_FIG:
         fig, axs = plt.subplots(4, 3, figsize=(16, 12))
         fig.suptitle('Red flag: ' + str(object_parameters['red_flag']) + ',    flag sp: ' + str(object_parameters['flag_sp']) + ',    proc flag: ' + str(int(proc_flag)))
@@ -717,7 +839,7 @@ def process_selected_id(s_id):
         axs[0, 0].legend()
         axs[0, 1].plot(wvl_val_ccd3, spectra_dif_c3, color='black', linewidth=0.5)
         axs[0, 1].set(xlim=(HALPHA_WVL - wvl_plot_range_s, HALPHA_WVL + wvl_plot_range_s), ylim=(-0.3, 0.8),
-                      ylabel='Difference lux', xlabel='Valid [NII] lines = {:.0f}'.format(nii_det))
+                      ylabel='Difference flux', xlabel='Valid [NII] lines = {:.0f}'.format(nii_det))
         axs[0, 2].plot(wvl_val_ccd3, spectra_div_c3, color='black', linewidth=0.5)
         ymlim_max = np.max(spectra_div_c3[np.abs(wvl_val_ccd3 - HALPHA_WVL) <= wvl_int_range]) * 1.05  # determine ylim
         axs[0, 2].set(xlim=(HALPHA_WVL - wvl_plot_range_z, HALPHA_WVL + wvl_plot_range_z), ylim=(0.7, ymlim_max),
